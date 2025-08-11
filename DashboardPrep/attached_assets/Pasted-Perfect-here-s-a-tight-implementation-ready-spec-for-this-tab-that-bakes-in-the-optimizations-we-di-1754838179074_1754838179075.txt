@@ -1,0 +1,158 @@
+Perfect—here’s a tight, implementation-ready spec for this tab that bakes in the optimizations we discussed and keeps your Expected Strokes engine as the single source of truth.
+
+0) Goal & scope
+
+Build a “Prepare” tab that lets users: (1) load a course (OSM + crowd enhancements), (2) navigate holes & camera presets, (3) set start / pin / aim, (4) see a uniformly sampled dispersion oval and the Expected Strokes (ES) from those samples, and (5) run a fast aim-point optimizer to propose best aims subject to max carry and course hazards.
+
+1) Frontend architecture (v0 component map)
+	•	CoursePicker
+	•	Modes: “Curated” (properly mapped courses only) and “Search” (Nominatim + Overpass).
+	•	Shows thumbnails + “Enhanced” badge.
+	•	HoleNavigator
+	•	Prev/Next/Full course + 1–18 grid; updates current hole & defaults for start/pin.
+	•	CesiumCanvas
+	•	Terrain, optional Google Photorealistic 3D tiles (toggle).
+	•	Layer toggles: features on/off, slope arrows, elevation dots.
+	•	ConditionDrawer
+	•	Draw polygons: tee, fairway, green, rough, recovery, water, bunker/sand, hazard (+1), OB (+2).
+	•	AimPanel
+	•	Start, Aim, Pin pickers; Skill selector (prebaked presets); Max carry input.
+	•	DispersionInspector
+	•	Shows the uniform ellipse dimensions derived from skill and distance; sample count & CI readout.
+	•	OptimizerPanel
+	•	Buttons: Run/Cancel; method (default CEM), ε (CI tolerance), output candidate list with ES ± CI.
+	•	MetricsBar
+	•	Distance start→pin, intended distance (start→aim), avg proximity (from samples), ES remaining, condition breakdown chart.
+
+2) State & events
+	•	Global state (per hole): courseId, holeId, bounds, viewBookmarks, mergedFeaturesVersion, maskPngMeta, slopePngMeta, start, pin, aim, skillPreset, maxCarry, photorealEnabled.
+	•	Events (typed): COURSE_LOADED, HOLE_CHANGED, VIEW_PRESET_SELECTED, POINT_SET {type: 'start'|'aim'|'pin'}, SKILL_CHANGED, SAMPLES_UPDATED {mean, ci95, countsByClass}, OPTIMIZER_RESULT {candidates[]}, POLYGONS_CHANGED.
+
+3) Data contracts (client)
+
+type LatLon = { lat: number; lon: number };
+
+type SkillPreset = {
+  name: 'Pro'|'Elite Am'|'Good'|'Average'|'Bad'|'Terrible'|string;
+  offlineDeg: number;   // e.g., 5.9
+  distPct: number;      // e.g., 4.7  (± long/short as % of shot length)
+};
+
+type MaskMeta = {
+  url: string; width: number; height: number; // pixels
+  bbox: { west: number; south: number; east: number; north: number };
+  paletteVersion: number; // class IDs stable across versions
+};
+
+type ClassId = 0|1|2|3|4|5|6|7|8; // unknown, OB, Water, Hazard, Bunker, Green, Fairway, Recovery, Rough
+
+type ESResult = { mean: number; ci95: number; n: number; countsByClass: Record<ClassId, number> };
+
+type AimCandidate = { aim: LatLon; es: ESResult; distanceYds: number };
+
+4) Storage & backend (Supabase)
+
+Tables
+	•	courses(id, name, bbox, quality_score, status, synonyms jsonb)
+	•	holes(id, course_id, number, par, yards, view_bookmarks jsonb, tee_points geometry, green_polygon geometry)
+	•	osm_features(id, course_id, hole_id, ftype, geom, source='overpass', version)
+	•	user_polygons(id, course_id, hole_id, ftype, geom, author_id, status, notes, created_at)
+	•	merged_features(id, course_id, hole_id, ftype, geom, version, built_from jsonb, created_at)
+	•	hole_masks(hole_id pk, palette_png_url, slope_png_url, width, height, bbox, palette_version, created_at)
+
+Buckets
+	•	course-masks/ 8-bit palette PNG (per hole)
+	•	course-slopes/ grayscale slope PNG (optional)
+	•	thumbnails/   for curated list
+
+Edge functions
+	•	fetch_overpass(courseId|bbox) → normalize per hole → upsert osm_features.
+	•	merge_features(holeId) → priority: OB > Water > Hazard > Bunker > Green > Fairway > Recovery > Rough → upsert merged_features.
+	•	bake_masks(holeId) → rasterize merged_features to palette PNG; optionally slope PNG → upload & upsert hole_masks.
+
+Curated list query: courses with 18 holes in merged_features and a hole_masks row per hole; order by quality_score and recency.
+
+5) Core algorithms
+
+5.1 Dispersion ellipse (uniform area sampling)
+
+Given distance d (start→aim), skill preset (\theta_{\text{deg}}, v\%):
+	•	Semi-axes (yards):
+	•	a = (v/100)\cdot d  (longitudinal)
+	•	b = d\cdot \tan(\theta_{\text{deg}}\cdot \pi/180)  (lateral)
+	•	To sample uniformly:
+	•	Draw u_1,u_2\in[0,1), set r=\sqrt{u_1}, \theta=2\pi u_2.
+	•	Disk (x_d,y_d)=(r\cos\theta,r\sin\theta).
+	•	Aim-local ellipse (x_e,y_e)=(a x_d, b y_d).
+	•	Rotate by aim bearing \phi and translate to aim.
+
+Use Halton/Sobol for (u_1,u_2) to reduce variance and support “progressive” confidence checks.
+
+5.2 Condition lookup via raster mask (O(1))
+	•	On hole load, fetch palette_png + georef, and sample pixel class for each point: 0=unknown, 1=OB, 2=Water, 3=Hazard, 4=Bunker, 5=Green, 6=Fairway, 7=Recovery, 8=Rough.
+	•	Optional subpixel supersampling (e.g., 4–8 offsets) near class edges.
+	•	(Fallback: polygon PIP only if a mask is missing—hidden behind a feature flag.)
+
+5.3 Expected Strokes (preserve your engine)
+	•	Use the provided engine as a black box for ES by distance+condition; it already switches by condition, caches, and applies the correct polynomials and linear extrapolations. Call:
+	•	strokesEngine.calculateExpectedStrokes(distanceYards, condition)  ￼  ￼
+	•	Examples preserved in the engine:
+	•	Putting 6th-degree coefficients & range guards.  ￼
+	•	Fairway 6th-degree + linear tails.  ￼
+	•	Sand/bunker poly + tail slope; recovery; water = rough +1.  ￼  ￼
+	•	Engine caching & helpers are already implemented (keep them).  ￼  ￼
+
+Condition mapping (mask → engine)
+OB→'rough'+2, Water→'water' (engine adds +1), Hazard→'rough'+1, Bunker→'sand', Green→'green', Fairway→'fairway', Recovery→'recovery', Rough→'rough'. Your current UI already follows this penalty logic.  ￼  ￼
+
+5.4 Progressive Monte Carlo with CI early-stop
+	•	Maintain running mean/variance (Welford). Stop when 95% CI < ε (e.g., ±0.03 strokes) or Nmax reached (e.g., 3000).
+	•	Report ES as mean ± CI95; feed CI back into optimizer for smarter decisions.
+
+5.5 Aim optimizer (default: CEM with geometric pruning)
+
+Prune first:
+	•	Reject samples whose 95% ellipse intersects OB/Water (inflate hazards by ellipse via distance transform on the mask).
+	•	Soft “progress” rule: deprioritize aims that are farther from the pin and not meaningfully safer.
+
+CEM loop (2D over r,θ):
+	1.	Initialize broad Gaussian over feasible (r,θ).
+	2.	Sample M candidates (e.g., 128); drop infeasible; evaluate ES with progressive sampling.
+	3.	Keep the top ρ% (e.g., 15%); refit mean/cov; apply σ floors (e.g., 3–5 yds, 2–3°).
+	4.	Repeat 6–8 iters; locally polish best K.
+	5.	Re-score finalists with tight ε; enforce ≥3-yd separation.
+
+6) Threading & performance
+	•	Web Workers
+	•	esWorker: takes batches of sample points → mask classes → ES via engine → returns running mean/CI (progressive).
+	•	optimizerWorker: runs CEM + viability map; schedules evaluation batches to esWorker.
+	•	Render throttling
+	•	viewer.scene.requestRenderMode = true; call requestRender() on state changes (hole change, toggles, optimizer finish).
+	•	Photoreal tiles
+	•	Lazy-load only when near the course; unload on course switch.
+
+7) UX behavior (edge cases)
+	•	If mask missing for a hole: show “Not enhanced yet” and (a) allow polygon drawing, (b) fallback to polygons for lookups (slower), (c) Invite users to load an Enhanced course from the curated list.
+	•	If optimized candidates are statistically tied (overlapping CIs): show “Too close to call” banner and offer “Tighten tolerance & rerun”.
+
+8) Frontend–backend contracts (HTTP)
+	•	GET /api/courses/curated?near=lat,lon → list of curated courses w/ thumbnails.
+	•	POST /api/overpass/fetch { bbox/courseId } → starts fetch; returns job id (Edge function).
+	•	POST /api/features/merge { holeId } → merges & versions.
+	•	POST /api/masks/bake { holeId } → writes palette & slope PNGs; returns MaskMeta.
+
+9) QA & acceptance criteria
+	•	Sampling correctness: heatmap of sample density inside the ellipse is visually uniform; KS test vs. uniform-in-ellipse distribution passes at α=0.05.
+	•	Mask accuracy: boundary misclassification < 1 m at 1 px resolution; subpixel supersampling reduces edge flips by ≥60%.
+	•	Optimizer: On 10 benchmark holes, CEM finds ES within 0.02 strokes of exhaustive grid (15°×10 rings) with ≤30% evaluations.
+	•	Engine parity: Spot checks of ES vs. your engine for fairway/rough/sand/putting at canonical distances match to ≤1e-3. (Use the engine—don’t reimplement.)  ￼  ￼
+
+10) Implementation notes for Claude Code
+	•	Do not touch the polynomial logic—import the engine and call calculateExpectedStrokes(distanceYards, courseCondition).  ￼
+	•	Respect the engine’s caching and keep your own memoization at the (maskClass, distanceBin) layer if desired.  ￼
+	•	Keep all heavy loops (mask classification + ES + optimizer) in workers. Post messages in batches (e.g., 256–1024 points) to reduce overhead.
+	•	Use Halton (bases 2,3) for ellipse sampling—easier than Sobol and good enough.
+
+⸻
+
+If you want, I can output a starter folder skeleton (files, function stubs, and v0 component props) that matches this spec, plus the exact TypeScript for: (a) ellipse sampling uniform-in-area, (b) progressive ES with CI early-stop, and (c) a minimal CEM loop feeding esWorker.

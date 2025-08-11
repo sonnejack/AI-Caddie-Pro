@@ -1,0 +1,669 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Golf Analytics Dashboard - Prepare</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#059669',
+                        secondary: '#0D9488',
+                        accent: '#3B82F6'
+                    },
+                    fontFamily: {
+                        'sans': ['Inter', 'system-ui', 'sans-serif'],
+                        'mono': ['JetBrains Mono', 'monospace']
+                    }
+                }
+            }
+        };
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-slate-900 text-slate-50 font-sans overflow-hidden">
+    <!-- Main Container -->
+    <div class="h-screen flex flex-col">
+        
+        <!-- Header with Navigation -->
+        <header class="bg-slate-800 border-b border-slate-700 px-6 py-4">
+            <div class="flex items-center justify-between">
+                <!-- Logo/Brand -->
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+                        <i class="fas fa-golf-ball text-white text-sm"></i>
+                    </div>
+                    <h1 class="text-xl font-semibold text-slate-50">Golf Analytics Pro</h1>
+                </div>
+
+                <!-- Tab Navigation -->
+                <nav class="flex space-x-1">
+                    <button class="px-4 py-2 rounded-lg bg-primary text-white font-medium transition-colors">
+                        <i class="fas fa-crosshairs mr-2"></i>Prepare
+                    </button>
+                    <button class="px-4 py-2 rounded-lg text-slate-400 hover:text-slate-50 hover:bg-slate-700 transition-colors">
+                        <i class="fas fa-play mr-2"></i>Play
+                    </button>
+                    <button class="px-4 py-2 rounded-lg text-slate-400 hover:text-slate-50 hover:bg-slate-700 transition-colors">
+                        <i class="fas fa-chart-bar mr-2"></i>Stats
+                    </button>
+                    <button class="px-4 py-2 rounded-lg text-slate-400 hover:text-slate-50 hover:bg-slate-700 transition-colors">
+                        <i class="fas fa-chart-line mr-2"></i>Trends
+                    </button>
+                    <button class="px-4 py-2 rounded-lg text-slate-400 hover:text-slate-50 hover:bg-slate-700 transition-colors">
+                        <i class="fas fa-bullseye mr-2"></i>Dispersion
+                    </button>
+                </nav>
+
+                <!-- User Menu -->
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 bg-slate-600 rounded-full flex items-center justify-center">
+                        <i class="fas fa-user text-slate-300 text-sm"></i>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <div class="flex-1 flex overflow-hidden">
+            
+            <!-- Left Sidebar - Course & Navigation -->
+            <aside class="w-80 bg-slate-800 border-r border-slate-700 flex flex-col">
+                
+                <!-- @COMPONENT: CoursePicker -->
+                <div class="p-4 border-b border-slate-700">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">Course Selection</h3>
+                    
+                    <!-- Course Picker Modes -->
+                    <div class="flex space-x-1 mb-3">
+                        <button class="flex-1 px-3 py-2 text-xs rounded-lg bg-primary text-white font-medium">
+                            Curated
+                        </button>
+                        <button class="flex-1 px-3 py-2 text-xs rounded-lg text-slate-400 hover:text-slate-50 hover:bg-slate-700">
+                            Search
+                        </button>
+                    </div>
+
+                    <!-- Selected Course -->
+                    <div class="bg-slate-700 rounded-lg p-3">
+                        <!-- Aerial view of Pebble Beach Golf Links with dramatic coastline -->
+                        <img src="https://images.unsplash.com/photo-1587174486073-ae5e5cff23aa?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&h=200" 
+                             alt="Pebble Beach Golf Course aerial view" 
+                             class="w-full h-24 object-cover rounded-md mb-2">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h4 class="font-medium text-sm">Pebble Beach Golf Links</h4>
+                                <p class="text-xs text-slate-400">Pebble Beach, CA</p>
+                            </div>
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-primary/20 text-primary">
+                                <i class="fas fa-star mr-1"></i>Enhanced
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <!-- @END_COMPONENT: CoursePicker -->
+
+                <!-- @COMPONENT: HoleNavigator -->
+                <div class="p-4 border-b border-slate-700">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">Hole Navigation</h3>
+                    
+                    <!-- Current Hole Display -->
+                    <div class="bg-slate-700 rounded-lg p-3 mb-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-lg font-bold">Hole 7</span>
+                            <span class="text-sm text-slate-400">Par 3 • 120 yds</span>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button class="flex-1 px-3 py-1 text-xs rounded bg-slate-600 hover:bg-slate-500 transition-colors">
+                                <i class="fas fa-chevron-left mr-1"></i>Prev
+                            </button>
+                            <button class="flex-1 px-3 py-1 text-xs rounded bg-slate-600 hover:bg-slate-500 transition-colors">
+                                Next<i class="fas fa-chevron-right ml-1"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Hole Grid -->
+                    <div class="grid grid-cols-6 gap-1">
+                        <!-- @MAP: holes.map(hole => ( -->
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">1</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">2</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">3</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">4</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">5</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">6</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded bg-primary text-white font-medium">7</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">8</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">9</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">10</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">11</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">12</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">13</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">14</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">15</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">16</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">17</button>
+                        <button class="aspect-square flex items-center justify-center text-xs rounded hover:bg-slate-600 transition-colors text-slate-400">18</button>
+                        <!-- @END_MAP )) -->
+                    </div>
+                </div>
+                <!-- @END_COMPONENT: HoleNavigator -->
+
+                <!-- @COMPONENT: ConditionDrawer -->
+                <div class="p-4 border-b border-slate-700">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">Course Conditions</h3>
+                    
+                    <div class="space-y-2">
+                        <button class="w-full flex items-center justify-between p-2 rounded-lg bg-green-600/20 text-green-400 hover:bg-green-600/30 transition-colors">
+                            <span class="flex items-center">
+                                <div class="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                                <span class="text-xs">Tee</span>
+                            </span>
+                            <i class="fas fa-pencil-alt text-xs"></i>
+                        </button>
+                        <button class="w-full flex items-center justify-between p-2 rounded-lg bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 transition-colors">
+                            <span class="flex items-center">
+                                <div class="w-3 h-3 bg-emerald-500 rounded-full mr-2"></div>
+                                <span class="text-xs">Fairway</span>
+                            </span>
+                            <i class="fas fa-pencil-alt text-xs"></i>
+                        </button>
+                        <button class="w-full flex items-center justify-between p-2 rounded-lg bg-green-700/20 text-green-300 hover:bg-green-700/30 transition-colors">
+                            <span class="flex items-center">
+                                <div class="w-3 h-3 bg-green-600 rounded-full mr-2"></div>
+                                <span class="text-xs">Green</span>
+                            </span>
+                            <i class="fas fa-pencil-alt text-xs"></i>
+                        </button>
+                        <button class="w-full flex items-center justify-between p-2 rounded-lg bg-amber-600/20 text-amber-400 hover:bg-amber-600/30 transition-colors">
+                            <span class="flex items-center">
+                                <div class="w-3 h-3 bg-amber-500 rounded-full mr-2"></div>
+                                <span class="text-xs">Rough</span>
+                            </span>
+                            <i class="fas fa-pencil-alt text-xs"></i>
+                        </button>
+                        <button class="w-full flex items-center justify-between p-2 rounded-lg bg-orange-600/20 text-orange-400 hover:bg-orange-600/30 transition-colors">
+                            <span class="flex items-center">
+                                <div class="w-3 h-3 bg-orange-500 rounded-full mr-2"></div>
+                                <span class="text-xs">Recovery</span>
+                            </span>
+                            <i class="fas fa-pencil-alt text-xs"></i>
+                        </button>
+                        <button class="w-full flex items-center justify-between p-2 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors">
+                            <span class="flex items-center">
+                                <div class="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
+                                <span class="text-xs">Water</span>
+                            </span>
+                            <i class="fas fa-pencil-alt text-xs"></i>
+                        </button>
+                        <button class="w-full flex items-center justify-between p-2 rounded-lg bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30 transition-colors">
+                            <span class="flex items-center">
+                                <div class="w-3 h-3 bg-yellow-500 rounded-full mr-2"></div>
+                                <span class="text-xs">Bunker/Sand</span>
+                            </span>
+                            <i class="fas fa-pencil-alt text-xs"></i>
+                        </button>
+                        <button class="w-full flex items-center justify-between p-2 rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors">
+                            <span class="flex items-center">
+                                <div class="w-3 h-3 bg-red-500 rounded-full mr-2"></div>
+                                <span class="text-xs">Hazard (+1)</span>
+                            </span>
+                            <i class="fas fa-pencil-alt text-xs"></i>
+                        </button>
+                        <button class="w-full flex items-center justify-between p-2 rounded-lg bg-slate-600/20 text-slate-400 hover:bg-slate-600/30 transition-colors">
+                            <span class="flex items-center">
+                                <div class="w-3 h-3 bg-slate-500 rounded-full mr-2"></div>
+                                <span class="text-xs">OB (+2)</span>
+                            </span>
+                            <i class="fas fa-pencil-alt text-xs"></i>
+                        </button>
+                    </div>
+                </div>
+                <!-- @END_COMPONENT: ConditionDrawer -->
+
+                <!-- @COMPONENT: AimPanel -->
+                <div class="flex-1 p-4 overflow-y-auto">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">Aim Configuration</h3>
+                    
+                    <!-- Point Pickers -->
+                    <div class="space-y-3 mb-4">
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">Start Position</label>
+                            <button class="w-full p-2 bg-slate-700 rounded-lg text-left text-sm hover:bg-slate-600 transition-colors">
+                                <span data-bind="start.coordinates">37.5259, -121.9468</span>
+                                <i class="fas fa-crosshairs float-right mt-1 text-primary"></i>
+                            </button>
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">Aim Point</label>
+                            <button class="w-full p-2 bg-slate-700 rounded-lg text-left text-sm hover:bg-slate-600 transition-colors">
+                                <span data-bind="aim.coordinates">37.5261, -121.9465</span>
+                                <i class="fas fa-crosshairs float-right mt-1 text-accent"></i>
+                            </button>
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">Pin Position</label>
+                            <button class="w-full p-2 bg-slate-700 rounded-lg text-left text-sm hover:bg-slate-600 transition-colors">
+                                <span data-bind="pin.coordinates">37.5263, -121.9462</span>
+                                <i class="fas fa-flag float-right mt-1 text-red-400"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Skill Selector -->
+                    <div class="mb-4">
+                        <label class="text-xs text-slate-400 mb-1 block">Skill Level</label>
+                        <select class="w-full p-2 bg-slate-700 rounded-lg text-sm border border-slate-600 focus:border-primary focus:outline-none">
+                            <option>Pro (5.9°, 4.7%)</option>
+                            <option selected>Elite Am (7.2°, 6.1%)</option>
+                            <option>Good (9.5°, 8.3%)</option>
+                            <option>Average (12.1°, 11.2%)</option>
+                            <option>Bad (15.8°, 15.6%)</option>
+                            <option>Terrible (20.3°, 21.4%)</option>
+                        </select>
+                    </div>
+
+                    <!-- Max Carry -->
+                    <div class="mb-4">
+                        <label class="text-xs text-slate-400 mb-1 block">Max Carry (yards)</label>
+                        <input type="number" value="280" class="w-full p-2 bg-slate-700 rounded-lg text-sm border border-slate-600 focus:border-primary focus:outline-none">
+                    </div>
+                </div>
+                <!-- @END_COMPONENT: AimPanel -->
+            </aside>
+
+            <!-- Center - 3D Visualization -->
+            <main class="flex-1 flex flex-col">
+                
+                <!-- @COMPONENT: CesiumCanvas -->
+                <div class="flex-1 relative bg-slate-700">
+                    <!-- Placeholder for Cesium 3D Canvas -->
+                    <!-- Beautiful golf course terrain with rolling hills and water features -->
+                    <img src="https://pixabay.com/get/gb4b092e62c0ae5a95800a478e8da9dc6a1f2858c3576de69f9e9a970c5d6b3361bf7cc8c7e38f9f21e4a9fff823afb50c5de276878ac10bbc8a256a85d32feed_1280.jpg" 
+                         alt="Golf course 3D terrain view" 
+                         class="w-full h-full object-cover">
+                    
+                    <!-- Canvas Overlay Controls -->
+                    <div class="absolute top-4 left-4 space-y-2">
+                        <button class="p-2 bg-slate-800/80 backdrop-blur-sm rounded-lg text-slate-300 hover:text-slate-50 transition-colors">
+                            <i class="fas fa-layer-group"></i>
+                        </button>
+                        <button class="p-2 bg-slate-800/80 backdrop-blur-sm rounded-lg text-slate-300 hover:text-slate-50 transition-colors">
+                            <i class="fas fa-mountain"></i>
+                        </button>
+                        <button class="p-2 bg-slate-800/80 backdrop-blur-sm rounded-lg text-primary">
+                            <i class="fas fa-globe"></i>
+                        </button>
+                    </div>
+
+                    <!-- View Presets -->
+                    <div class="absolute top-4 right-4 space-x-2">
+                        <button class="px-3 py-2 bg-slate-800/80 backdrop-blur-sm rounded-lg text-sm text-slate-300 hover:text-slate-50 transition-colors">
+                            Overhead
+                        </button>
+                        <button class="px-3 py-2 bg-primary/80 backdrop-blur-sm rounded-lg text-sm text-white">
+                            Approach
+                        </button>
+                        <button class="px-3 py-2 bg-slate-800/80 backdrop-blur-sm rounded-lg text-sm text-slate-300 hover:text-slate-50 transition-colors">
+                            Green
+                        </button>
+                    </div>
+
+                    <!-- Distance/Wind Info -->
+                    <div class="absolute bottom-4 left-4 bg-slate-800/80 backdrop-blur-sm rounded-lg p-3">
+                        <div class="text-xs text-slate-400 mb-1">Distance to Pin</div>
+                        <div class="text-lg font-bold text-slate-50" data-bind="distanceToPin">118 yds</div>
+                        <div class="text-xs text-slate-400 mt-2">Wind: 8 mph SW</div>
+                    </div>
+
+                    <!-- @FUNCTIONALITY: This canvas should integrate Cesium.js for 3D terrain visualization -->
+                    <!-- @STATE: terrain:boolean = true, photorealistic:boolean = false, layersVisible:Object -->
+                </div>
+                <!-- @END_COMPONENT: CesiumCanvas -->
+
+                <!-- @COMPONENT: MetricsBar -->
+                <div class="bg-slate-800 border-t border-slate-700 p-4">
+                    <div class="grid grid-cols-5 gap-4">
+                        <div class="text-center">
+                            <div class="text-xs text-slate-400 mb-1">Intended Distance</div>
+                            <div class="text-lg font-bold font-mono" data-bind="intendedDistance">115 yds</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-xs text-slate-400 mb-1">Expected Strokes</div>
+                            <div class="text-lg font-bold font-mono text-primary" data-bind="expectedStrokes">2.34 ± 0.02</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-xs text-slate-400 mb-1">Avg Proximity</div>
+                            <div class="text-lg font-bold font-mono" data-bind="avgProximity">8.2 ft</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-xs text-slate-400 mb-1">Samples</div>
+                            <div class="text-lg font-bold font-mono" data-bind="sampleCount">1,247</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-xs text-slate-400 mb-1">Confidence</div>
+                            <div class="text-lg font-bold font-mono text-green-400" data-bind="confidence">95%</div>
+                        </div>
+                    </div>
+                </div>
+                <!-- @END_COMPONENT: MetricsBar -->
+            </main>
+
+            <!-- Right Sidebar - Analysis & Optimization -->
+            <aside class="w-80 bg-slate-800 border-l border-slate-700 flex flex-col">
+                
+                <!-- @COMPONENT: DispersionInspector -->
+                <div class="p-4 border-b border-slate-700">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">Dispersion Analysis</h3>
+                    
+                    <!-- Ellipse Dimensions -->
+                    <div class="bg-slate-700 rounded-lg p-3 mb-3">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <div class="text-xs text-slate-400 mb-1">Longitudinal</div>
+                                <div class="text-sm font-mono" data-bind="ellipse.longitudinal">7.0 yds</div>
+                            </div>
+                            <div>
+                                <div class="text-xs text-slate-400 mb-1">Lateral</div>
+                                <div class="text-sm font-mono" data-bind="ellipse.lateral">12.1 yds</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sampling Progress -->
+                    <div class="mb-3">
+                        <div class="flex justify-between text-xs text-slate-400 mb-1">
+                            <span>Sampling Progress</span>
+                            <span data-bind="samplingProgress">1,247 / 3,000</span>
+                        </div>
+                        <div class="w-full bg-slate-600 rounded-full h-2">
+                            <div class="bg-primary h-2 rounded-full transition-all duration-300" style="width: 41.6%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Condition Breakdown -->
+                    <div>
+                        <div class="text-xs text-slate-400 mb-2">Landing Conditions</div>
+                        <div class="space-y-1">
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs flex items-center">
+                                    <div class="w-2 h-2 bg-emerald-500 rounded-full mr-2"></div>
+                                    Fairway
+                                </span>
+                                <span class="text-xs font-mono" data-bind="conditions.fairway">73%</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs flex items-center">
+                                    <div class="w-2 h-2 bg-amber-500 rounded-full mr-2"></div>
+                                    Rough
+                                </span>
+                                <span class="text-xs font-mono" data-bind="conditions.rough">18%</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs flex items-center">
+                                    <div class="w-2 h-2 bg-green-600 rounded-full mr-2"></div>
+                                    Green
+                                </span>
+                                <span class="text-xs font-mono" data-bind="conditions.green">7%</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs flex items-center">
+                                    <div class="w-2 h-2 bg-yellow-500 rounded-full mr-2"></div>
+                                    Bunker
+                                </span>
+                                <span class="text-xs font-mono" data-bind="conditions.bunker">2%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- @END_COMPONENT: DispersionInspector -->
+
+                <!-- @COMPONENT: OptimizerPanel -->
+                <div class="p-4 border-b border-slate-700">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">Aim Optimizer</h3>
+                    
+                    <!-- Optimizer Settings -->
+                    <div class="space-y-3 mb-4">
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">Method</label>
+                            <select class="w-full p-2 bg-slate-700 rounded-lg text-sm border border-slate-600 focus:border-primary focus:outline-none">
+                                <option>Cross-Entropy Method (CEM)</option>
+                                <option>Grid Search</option>
+                                <option>Genetic Algorithm</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">Tolerance (ε)</label>
+                            <input type="number" value="0.03" step="0.01" class="w-full p-2 bg-slate-700 rounded-lg text-sm border border-slate-600 focus:border-primary focus:outline-none">
+                        </div>
+                    </div>
+
+                    <!-- Optimizer Controls -->
+                    <div class="space-y-2 mb-4">
+                        <button class="w-full px-4 py-2 bg-primary hover:bg-primary/80 rounded-lg text-sm font-medium transition-colors">
+                            <i class="fas fa-play mr-2"></i>Run Optimization
+                        </button>
+                        <button class="w-full px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg text-sm transition-colors" disabled>
+                            <i class="fas fa-stop mr-2"></i>Cancel
+                        </button>
+                    </div>
+
+                    <!-- Optimization Status -->
+                    <!-- @STATE: optimizationRunning:boolean = false, progress:number = 0 -->
+                    <div class="bg-slate-700 rounded-lg p-3" data-mock="true">
+                        <div class="flex justify-between text-xs text-slate-400 mb-1">
+                            <span>Optimization Progress</span>
+                            <span>Iteration 6/8</span>
+                        </div>
+                        <div class="w-full bg-slate-600 rounded-full h-2 mb-2">
+                            <div class="bg-accent h-2 rounded-full transition-all duration-300" style="width: 75%"></div>
+                        </div>
+                        <div class="text-xs text-slate-400">Evaluating candidates...</div>
+                    </div>
+                </div>
+                <!-- @END_COMPONENT: OptimizerPanel -->
+
+                <!-- Optimization Results -->
+                <div class="flex-1 p-4 overflow-y-auto">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-3">Optimization Results</h3>
+                    
+                    <!-- @MAP: candidates.map(candidate => ( -->
+                    <div class="space-y-2" data-mock="true">
+                        <div class="bg-slate-700 rounded-lg p-3 border border-primary">
+                            <div class="flex justify-between items-start mb-2">
+                                <div class="flex items-center">
+                                    <i class="fas fa-star text-primary mr-2"></i>
+                                    <span class="text-sm font-medium">Best Aim</span>
+                                </div>
+                                <span class="text-xs bg-primary/20 text-primary px-2 py-1 rounded">Optimal</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                    <span class="text-slate-400">Distance:</span>
+                                    <span class="font-mono ml-1" data-bind="candidate.distance">114 yds</span>
+                                </div>
+                                <div>
+                                    <span class="text-slate-400">Expected Strokes:</span>
+                                    <span class="font-mono ml-1 text-primary" data-bind="candidate.es">2.31 ± 0.02</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-700 rounded-lg p-3">
+                            <div class="flex justify-between items-start mb-2">
+                                <div class="flex items-center">
+                                    <i class="fas fa-circle text-slate-400 mr-2 text-xs"></i>
+                                    <span class="text-sm">Alternative</span>
+                                </div>
+                                <span class="text-xs bg-slate-600 text-slate-300 px-2 py-1 rounded">-0.03</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                    <span class="text-slate-400">Distance:</span>
+                                    <span class="font-mono ml-1" data-bind="candidate.distance">116 yds</span>
+                                </div>
+                                <div>
+                                    <span class="text-slate-400">Expected Strokes:</span>
+                                    <span class="font-mono ml-1" data-bind="candidate.es">2.34 ± 0.03</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-700 rounded-lg p-3">
+                            <div class="flex justify-between items-start mb-2">
+                                <div class="flex items-center">
+                                    <i class="fas fa-circle text-slate-400 mr-2 text-xs"></i>
+                                    <span class="text-sm">Conservative</span>
+                                </div>
+                                <span class="text-xs bg-slate-600 text-slate-300 px-2 py-1 rounded">-0.05</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                    <span class="text-slate-400">Distance:</span>
+                                    <span class="font-mono ml-1" data-bind="candidate.distance">110 yds</span>
+                                </div>
+                                <div>
+                                    <span class="text-slate-400">Expected Strokes:</span>
+                                    <span class="font-mono ml-1" data-bind="candidate.es">2.36 ± 0.02</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- @END_MAP )) -->
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script>
+        // TODO: Implement business logic, API calls, and state management
+        
+        // Initialize dashboard state
+        (function() {
+            // @STATE: Global application state
+            const dashboardState = {
+                activeTab: 'prepare',
+                courseId: 'pebble-beach',
+                holeId: 7,
+                start: { lat: 37.5259, lon: -121.9468 },
+                aim: { lat: 37.5261, lon: -121.9465 },
+                pin: { lat: 37.5263, lon: -121.9462 },
+                skillPreset: 'Elite Am',
+                maxCarry: 280,
+                photorealEnabled: false,
+                optimizationRunning: false
+            };
+
+            // Tab switching functionality
+            const tabs = document.querySelectorAll('nav button');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    // Remove active state from all tabs
+                    tabs.forEach(t => {
+                        t.classList.remove('bg-primary', 'text-white');
+                        t.classList.add('text-slate-400', 'hover:text-slate-50', 'hover:bg-slate-700');
+                    });
+                    
+                    // Add active state to clicked tab
+                    this.classList.add('bg-primary', 'text-white');
+                    this.classList.remove('text-slate-400', 'hover:text-slate-50', 'hover:bg-slate-700');
+                    
+                    // TODO: Implement tab content switching
+                });
+            });
+
+            // Hole navigation
+            const holeButtons = document.querySelectorAll('.grid button');
+            holeButtons.forEach((button, index) => {
+                button.addEventListener('click', function() {
+                    // Update active hole
+                    holeButtons.forEach(b => {
+                        b.classList.remove('bg-primary', 'text-white', 'font-medium');
+                        b.classList.add('text-slate-400');
+                    });
+                    
+                    this.classList.add('bg-primary', 'text-white', 'font-medium');
+                    this.classList.remove('text-slate-400');
+                    
+                    // TODO: Update hole data and 3D view
+                });
+            });
+
+            // Course condition drawing tools
+            const conditionButtons = document.querySelectorAll('aside button[class*="bg-"]');
+            conditionButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    // Toggle active drawing mode
+                    conditionButtons.forEach(b => b.classList.remove('ring-2', 'ring-white'));
+                    this.classList.add('ring-2', 'ring-white');
+                    
+                    // TODO: Enable drawing mode for selected condition
+                });
+            });
+
+            // Optimization controls
+            const runOptimizationBtn = document.querySelector('button[class*="bg-primary"]:has(i.fa-play)');
+            if (runOptimizationBtn) {
+                runOptimizationBtn.addEventListener('click', function() {
+                    // TODO: Start optimization worker
+                    console.log('Starting aim optimization...');
+                    
+                    // Update UI to show optimization in progress
+                    this.disabled = true;
+                    this.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Optimizing...';
+                    
+                    // TODO: Implement actual optimization logic with Web Workers
+                });
+            }
+
+            // 3D view preset controls
+            const viewPresets = document.querySelectorAll('main button:has(text)');
+            viewPresets.forEach(button => {
+                button.addEventListener('click', function() {
+                    // Update active view preset
+                    viewPresets.forEach(b => {
+                        b.classList.remove('bg-primary/80', 'text-white');
+                        b.classList.add('bg-slate-800/80', 'text-slate-300');
+                    });
+                    
+                    this.classList.add('bg-primary/80', 'text-white');
+                    this.classList.remove('bg-slate-800/80', 'text-slate-300');
+                    
+                    // TODO: Update Cesium camera view
+                });
+            });
+
+            // Progressive sampling simulation
+            function simulateProgressiveSampling() {
+                const progressBar = document.querySelector('.bg-primary.h-2');
+                const sampleCountElement = document.querySelector('[data-bind="sampleCount"]');
+                const progressText = document.querySelector('[data-bind="samplingProgress"]');
+                
+                let currentSamples = 247;
+                const maxSamples = 3000;
+                
+                const interval = setInterval(() => {
+                    currentSamples += Math.floor(Math.random() * 50) + 20;
+                    if (currentSamples >= maxSamples) {
+                        currentSamples = maxSamples;
+                        clearInterval(interval);
+                    }
+                    
+                    const progress = (currentSamples / maxSamples) * 100;
+                    if (progressBar) progressBar.style.width = `${progress}%`;
+                    if (sampleCountElement) sampleCountElement.textContent = currentSamples.toLocaleString();
+                    if (progressText) progressText.textContent = `${currentSamples.toLocaleString()} / ${maxSamples.toLocaleString()}`;
+                }, 1000);
+            }
+
+            // Start simulation
+            simulateProgressiveSampling();
+
+            console.log('Golf Analytics Dashboard initialized');
+        })();
+    </script>
+</body>
+</html>

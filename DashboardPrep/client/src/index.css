@@ -1,0 +1,144 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(210, 40%, 98%);
+  --foreground: hsl(222.2, 84%, 4.9%);
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(222.2, 84%, 4.9%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(222.2, 84%, 4.9%);
+  --primary: hsl(173, 88%, 25%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(210, 40%, 24%);
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --muted: hsl(210, 40%, 96%);
+  --muted-foreground: hsl(215.4, 16.3%, 46.9%);
+  --accent: hsl(159, 88%, 35%);
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(0, 84.2%, 60.2%);
+  --destructive-foreground: hsl(210, 40%, 98%);
+  --border: hsl(214.3, 31.8%, 91.4%);
+  --input: hsl(214.3, 31.8%, 91.4%);
+  --ring: hsl(173, 88%, 25%);
+  --chart-1: hsl(173, 88%, 25%);
+  --chart-2: hsl(159, 88%, 35%);
+  --chart-3: hsl(120, 60%, 50%);
+  --chart-4: hsl(60, 90%, 55%);
+  --chart-5: hsl(220, 70%, 50%);
+  --golf-green: hsl(120, 60%, 50%);
+  --golf-fairway: hsl(82, 84%, 46%);
+  --golf-rough: hsl(210, 7%, 64%);
+  --golf-sand: hsl(54, 91%, 70%);
+  --golf-water: hsl(220, 91%, 61%);
+  --golf-hazard: hsl(0, 91%, 62%);
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: hsl(222.2, 84%, 4.9%);
+  --foreground: hsl(210, 40%, 98%);
+  --card: hsl(222.2, 84%, 4.9%);
+  --card-foreground: hsl(210, 40%, 98%);
+  --popover: hsl(222.2, 84%, 4.9%);
+  --popover-foreground: hsl(210, 40%, 98%);
+  --primary: hsl(173, 88%, 35%);
+  --primary-foreground: hsl(222.2, 84%, 4.9%);
+  --secondary: hsl(217.2, 32.6%, 17.5%);
+  --secondary-foreground: hsl(210, 40%, 98%);
+  --muted: hsl(217.2, 32.6%, 17.5%);
+  --muted-foreground: hsl(215, 20.2%, 65.1%);
+  --accent: hsl(159, 88%, 45%);
+  --accent-foreground: hsl(210, 40%, 98%);
+  --destructive: hsl(0, 62.8%, 30.6%);
+  --destructive-foreground: hsl(210, 40%, 98%);
+  --border: hsl(217.2, 32.6%, 17.5%);
+  --input: hsl(217.2, 32.6%, 17.5%);
+  --ring: hsl(173, 88%, 35%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', 'var(--font-sans)', ui-sans-serif, system-ui;
+  }
+}
+
+@layer components {
+  .tab-button {
+    @apply transition-all duration-200;
+  }
+  
+  .tab-button.active {
+    @apply border-primary text-primary;
+  }
+
+  .golf-condition-green {
+    background-color: var(--golf-green);
+  }
+  
+  .golf-condition-fairway {
+    background-color: var(--golf-fairway);
+  }
+  
+  .golf-condition-rough {
+    background-color: var(--golf-rough);
+  }
+  
+  .golf-condition-sand {
+    background-color: var(--golf-sand);
+  }
+  
+  .golf-condition-water {
+    background-color: var(--golf-water);
+  }
+  
+  .golf-condition-hazard {
+    background-color: var(--golf-hazard);
+  }
+}
+
+@layer utilities {
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px];
+  }
+}
+
+/* Cesium overrides */
+.cesium-viewer-toolbar,
+.cesium-viewer-animationContainer,
+.cesium-viewer-bottomContainer,
+.cesium-viewer-fullscreenContainer {
+  display: none !important;
+}
+
+.cesium-widget-credits {
+  display: none !important;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .mobile-stack {
+    @apply flex flex-col gap-6;
+  }
+  
+  .mobile-stack > * {
+    @apply col-span-1;
+  }
+}
+
+/* Touch-friendly controls */
+@media (max-width: 1024px) {
+  button, select, input {
+    @apply touch-target;
+  }
+  
+  .hole-grid button {
+    @apply min-h-[36px] min-w-[36px];
+  }
+}

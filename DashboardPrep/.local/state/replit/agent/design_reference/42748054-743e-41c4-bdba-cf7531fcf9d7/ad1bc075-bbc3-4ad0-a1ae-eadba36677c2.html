@@ -1,0 +1,779 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Golf Analytics Dashboard - Prepare</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://kit.fontawesome.com/your-kit-id.js" crossorigin="anonymous"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'sans': ['Inter', 'ui-sans-serif', 'system-ui']
+                    },
+                    colors: {
+                        primary: '#0F766E',
+                        secondary: '#1F2937',
+                        accent: '#059669',
+                        golf: {
+                            green: '#22C55E',
+                            fairway: '#84CC16',
+                            rough: '#A3A3A3',
+                            sand: '#FDE047',
+                            water: '#3B82F6',
+                            hazard: '#EF4444'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-50 font-sans">
+    <!-- @COMPONENT: AppShell [main dashboard container] -->
+    <div class="min-h-screen bg-slate-50">
+        <!-- Header -->
+        <!-- @COMPONENT: Header [top navigation bar] -->
+        <header class="bg-white border-b border-slate-200 sticky top-0 z-50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center h-16">
+                    <div class="flex items-center space-x-4">
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-golf-ball text-primary text-xl"></i>
+                            <h1 class="text-xl font-bold text-secondary">Golf Analytics Pro</h1>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <button class="p-2 text-gray-400 hover:text-gray-600 transition-colors">
+                            <i class="fas fa-bell text-lg"></i>
+                        </button>
+                        <button class="p-2 text-gray-400 hover:text-gray-600 transition-colors">
+                            <i class="fas fa-cog text-lg"></i>
+                        </button>
+                        <div class="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
+                            <i class="fas fa-user text-white text-sm"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <!-- @END_COMPONENT: Header -->
+
+        <!-- Tab Navigation -->
+        <!-- @COMPONENT: TabNavigation [main dashboard tabs] -->
+        <div class="bg-white border-b border-slate-200">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <nav class="flex space-x-8 overflow-x-auto">
+                    <button data-tab="prepare" class="tab-button active whitespace-nowrap py-4 px-1 border-b-2 border-primary text-primary font-medium text-sm">
+                        <i class="fas fa-map-marked-alt mr-2"></i>Prepare
+                    </button>
+                    <button data-tab="play" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 font-medium text-sm">
+                        <i class="fas fa-play mr-2"></i>Play
+                    </button>
+                    <button data-tab="stats" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 font-medium text-sm">
+                        <i class="fas fa-chart-bar mr-2"></i>Stats
+                    </button>
+                    <button data-tab="trends" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 font-medium text-sm">
+                        <i class="fas fa-chart-line mr-2"></i>Trends
+                    </button>
+                    <button data-tab="dispersion" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 font-medium text-sm">
+                        <i class="fas fa-bullseye mr-2"></i>Dispersion
+                    </button>
+                </nav>
+            </div>
+        </div>
+        <!-- @END_COMPONENT: TabNavigation -->
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <!-- Prepare Tab Content -->
+            <!-- @COMPONENT: PrepareTab [main prepare tab implementation] -->
+            <div id="prepare-tab" class="tab-content">
+                <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                    <!-- Left Sidebar - Course Selection & Navigation -->
+                    <div class="lg:col-span-1 space-y-6">
+                        <!-- Course Picker -->
+                        <!-- @COMPONENT: CoursePicker [course selection component] -->
+                        <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+                            <h3 class="text-lg font-semibold text-secondary mb-4">Select Course</h3>
+                            
+                            <!-- Mode Toggle -->
+                            <div class="flex mb-4 bg-slate-100 rounded-lg p-1">
+                                <button class="flex-1 py-2 px-3 text-sm font-medium text-white bg-primary rounded-md transition-colors">
+                                    Curated
+                                </button>
+                                <button class="flex-1 py-2 px-3 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+                                    Search
+                                </button>
+                            </div>
+
+                            <!-- Course List -->
+                            <div class="space-y-3">
+                                <div class="p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors">
+                                    <!-- Pebble Beach Golf Links aerial view -->
+                                    <img src="https://images.unsplash.com/photo-1587174486073-ae5e5cff23aa?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&h=200" alt="Pebble Beach Golf Course aerial view" class="w-full h-20 object-cover rounded mb-2">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <h4 class="font-medium text-secondary text-sm" data-bind="course.name">Pebble Beach</h4>
+                                            <p class="text-xs text-gray-500" data-bind="course.location">Pebble Beach, CA</p>
+                                        </div>
+                                        <span class="bg-accent text-white text-xs px-2 py-1 rounded-full">Enhanced</span>
+                                    </div>
+                                </div>
+
+                                <div class="p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors border-primary bg-primary/5">
+                                    <!-- St. Andrews golf course aerial perspective -->
+                                    <img src="https://images.unsplash.com/photo-1535131749006-b7f58c99034b?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&h=200" alt="St. Andrews golf course aerial view" class="w-full h-20 object-cover rounded mb-2">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <h4 class="font-medium text-secondary text-sm" data-bind="course.name">St. Andrews Old</h4>
+                                            <p class="text-xs text-gray-500" data-bind="course.location">St. Andrews, Scotland</p>
+                                        </div>
+                                        <span class="bg-accent text-white text-xs px-2 py-1 rounded-full">Enhanced</span>
+                                    </div>
+                                </div>
+
+                                <div class="p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors">
+                                    <!-- Augusta National aerial golf course view -->
+                                    <img src="https://images.unsplash.com/photo-1551698618-1dfe5d97d256?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&h=200" alt="Augusta National golf course aerial view" class="w-full h-20 object-cover rounded mb-2">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <h4 class="font-medium text-secondary text-sm" data-bind="course.name">Augusta National</h4>
+                                            <p class="text-xs text-gray-500" data-bind="course.location">Augusta, GA</p>
+                                        </div>
+                                        <span class="bg-accent text-white text-xs px-2 py-1 rounded-full">Enhanced</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- @END_COMPONENT: CoursePicker -->
+
+                        <!-- Hole Navigator -->
+                        <!-- @COMPONENT: HoleNavigator [hole selection and navigation] -->
+                        <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-semibold text-secondary">Hole Navigation</h3>
+                                <div class="flex items-center space-x-2">
+                                    <button class="p-1 text-gray-400 hover:text-gray-600 transition-colors">
+                                        <i class="fas fa-chevron-left"></i>
+                                    </button>
+                                    <span class="text-sm font-medium text-secondary" data-bind="currentHole">Hole 1</span>
+                                    <button class="p-1 text-gray-400 hover:text-gray-600 transition-colors">
+                                        <i class="fas fa-chevron-right"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Hole Grid -->
+                            <div class="grid grid-cols-6 gap-2 mb-4">
+                                <!-- @MAP: holes.map(hole => ( -->
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors bg-primary text-white">1</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">2</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">3</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">4</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">5</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">6</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">7</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">8</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">9</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">10</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">11</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">12</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">13</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">14</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">15</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">16</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">17</button>
+                                <button class="w-8 h-8 text-xs font-medium border border-slate-200 rounded hover:bg-slate-50 transition-colors text-gray-600">18</button>
+                                <!-- @END_MAP )) -->
+                            </div>
+
+                            <!-- Hole Details -->
+                            <div class="text-sm space-y-2">
+                                <div class="flex justify-between">
+                                    <span class="text-gray-600">Par:</span>
+                                    <span class="font-medium" data-bind="hole.par">4</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-600">Yards:</span>
+                                    <span class="font-medium" data-bind="hole.yards">415</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-600">Handicap:</span>
+                                    <span class="font-medium" data-bind="hole.handicap">7</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- @END_COMPONENT: HoleNavigator -->
+
+                        <!-- Condition Drawer -->
+                        <!-- @COMPONENT: ConditionDrawer [course condition drawing tools] -->
+                        <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+                            <h3 class="text-lg font-semibold text-secondary mb-4">Drawing Tools</h3>
+                            
+                            <div class="space-y-3">
+                                <button class="w-full flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-4 h-4 bg-golf-green rounded"></div>
+                                        <span class="text-sm font-medium">Green</span>
+                                    </div>
+                                    <i class="fas fa-pencil-alt text-gray-400"></i>
+                                </button>
+
+                                <button class="w-full flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-4 h-4 bg-golf-fairway rounded"></div>
+                                        <span class="text-sm font-medium">Fairway</span>
+                                    </div>
+                                    <i class="fas fa-pencil-alt text-gray-400"></i>
+                                </button>
+
+                                <button class="w-full flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-4 h-4 bg-golf-rough rounded"></div>
+                                        <span class="text-sm font-medium">Rough</span>
+                                    </div>
+                                    <i class="fas fa-pencil-alt text-gray-400"></i>
+                                </button>
+
+                                <button class="w-full flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-4 h-4 bg-golf-sand rounded"></div>
+                                        <span class="text-sm font-medium">Bunker</span>
+                                    </div>
+                                    <i class="fas fa-pencil-alt text-gray-400"></i>
+                                </button>
+
+                                <button class="w-full flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-4 h-4 bg-golf-water rounded"></div>
+                                        <span class="text-sm font-medium">Water</span>
+                                    </div>
+                                    <i class="fas fa-pencil-alt text-gray-400"></i>
+                                </button>
+
+                                <button class="w-full flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-4 h-4 bg-golf-hazard rounded"></div>
+                                        <span class="text-sm font-medium">Hazard</span>
+                                    </div>
+                                    <i class="fas fa-pencil-alt text-gray-400"></i>
+                                </button>
+                            </div>
+
+                            <div class="mt-4 pt-4 border-t border-slate-200">
+                                <button class="w-full py-2 px-4 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium">
+                                    <i class="fas fa-eraser mr-2"></i>Clear All
+                                </button>
+                            </div>
+                        </div>
+                        <!-- @END_COMPONENT: ConditionDrawer -->
+                    </div>
+
+                    <!-- Center - 3D Canvas -->
+                    <div class="lg:col-span-2">
+                        <!-- @COMPONENT: CesiumCanvas [3D course visualization] -->
+                        <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+                            <div class="p-4 border-b border-slate-200">
+                                <div class="flex items-center justify-between">
+                                    <h3 class="text-lg font-semibold text-secondary">Course View</h3>
+                                    <div class="flex items-center space-x-2">
+                                        <button class="p-2 text-gray-400 hover:text-gray-600 transition-colors" title="Toggle Photorealistic 3D">
+                                            <i class="fas fa-cube"></i>
+                                        </button>
+                                        <button class="p-2 text-gray-400 hover:text-gray-600 transition-colors" title="Toggle Features">
+                                            <i class="fas fa-layer-group"></i>
+                                        </button>
+                                        <button class="p-2 text-gray-400 hover:text-gray-600 transition-colors" title="Toggle Slope Arrows">
+                                            <i class="fas fa-arrow-up"></i>
+                                        </button>
+                                        <button class="p-2 text-gray-400 hover:text-gray-600 transition-colors" title="Camera Presets">
+                                            <i class="fas fa-video"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 3D Canvas Container -->
+                            <div class="relative h-96 bg-gradient-to-br from-green-100 to-green-200">
+                                <!-- Golf course terrain with sand bunkers and water hazards -->
+                                <img src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600" alt="Golf course terrain with bunkers and water features" class="w-full h-full object-cover">
+                                
+                                <!-- 3D Canvas Overlay -->
+                                <!-- @FUNCTIONALITY: This should implement Cesium 3D terrain visualization with course features, dispersion ellipse, and interactive markers -->
+                                <div class="absolute inset-0 bg-black bg-opacity-10 flex items-center justify-center">
+                                    <div class="text-center text-white">
+                                        <i class="fas fa-globe text-4xl mb-2 opacity-70"></i>
+                                        <p class="text-sm opacity-70">3D Course Visualization</p>
+                                        <p class="text-xs opacity-50">Cesium Integration</p>
+                                    </div>
+                                </div>
+
+                                <!-- Dispersion Ellipse Overlay -->
+                                <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                                    <div class="w-32 h-20 border-2 border-yellow-400 rounded-full opacity-60"></div>
+                                </div>
+
+                                <!-- Point Markers -->
+                                <div class="absolute top-1/4 left-1/3 w-3 h-3 bg-red-500 rounded-full border-2 border-white shadow-lg" title="Start Point"></div>
+                                <div class="absolute top-2/3 right-1/3 w-3 h-3 bg-blue-500 rounded-full border-2 border-white shadow-lg" title="Aim Point"></div>
+                                <div class="absolute bottom-1/4 right-1/4 w-3 h-3 bg-green-500 rounded-full border-2 border-white shadow-lg" title="Pin"></div>
+                            </div>
+
+                            <!-- Camera Controls -->
+                            <div class="p-3 bg-slate-50 border-t border-slate-200">
+                                <div class="flex items-center justify-between text-xs text-gray-600">
+                                    <div class="flex items-center space-x-4">
+                                        <span>Elevation: <span class="font-medium" data-bind="elevation">245ft</span></span>
+                                        <span>Zoom: <span class="font-medium" data-bind="zoom">15x</span></span>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <button class="px-2 py-1 bg-white border border-slate-200 rounded text-xs hover:bg-slate-50 transition-colors">Tee View</button>
+                                        <button class="px-2 py-1 bg-white border border-slate-200 rounded text-xs hover:bg-slate-50 transition-colors">Green View</button>
+                                        <button class="px-2 py-1 bg-white border border-slate-200 rounded text-xs hover:bg-slate-50 transition-colors">Overview</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- @END_COMPONENT: CesiumCanvas -->
+
+                        <!-- Metrics Bar -->
+                        <!-- @COMPONENT: MetricsBar [real-time metrics display] -->
+                        <div class="mt-6 bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+                            <h3 class="text-lg font-semibold text-secondary mb-4">Shot Metrics</h3>
+                            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div class="text-center">
+                                    <p class="text-2xl font-bold text-primary" data-bind="metrics.totalDistance">415</p>
+                                    <p class="text-xs text-gray-600">Total Distance (yds)</p>
+                                </div>
+                                <div class="text-center">
+                                    <p class="text-2xl font-bold text-accent" data-bind="metrics.aimDistance">380</p>
+                                    <p class="text-xs text-gray-600">Aim Distance (yds)</p>
+                                </div>
+                                <div class="text-center">
+                                    <p class="text-2xl font-bold text-orange-600" data-bind="metrics.expectedStrokes">3.84</p>
+                                    <p class="text-xs text-gray-600">Expected Strokes</p>
+                                </div>
+                                <div class="text-center">
+                                    <p class="text-2xl font-bold text-purple-600" data-bind="metrics.proximity">12.3</p>
+                                    <p class="text-xs text-gray-600">Avg Proximity (ft)</p>
+                                </div>
+                            </div>
+
+                            <!-- Condition Breakdown Chart -->
+                            <div class="mt-4 pt-4 border-t border-slate-200">
+                                <h4 class="text-sm font-medium text-secondary mb-3">Landing Conditions</h4>
+                                <div class="flex items-center space-x-4">
+                                    <div class="flex items-center space-x-2">
+                                        <div class="w-3 h-3 bg-golf-fairway rounded"></div>
+                                        <span class="text-sm text-gray-600">Fairway 65%</span>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <div class="w-3 h-3 bg-golf-rough rounded"></div>
+                                        <span class="text-sm text-gray-600">Rough 25%</span>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <div class="w-3 h-3 bg-golf-sand rounded"></div>
+                                        <span class="text-sm text-gray-600">Bunker 8%</span>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <div class="w-3 h-3 bg-golf-water rounded"></div>
+                                        <span class="text-sm text-gray-600">Water 2%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- @END_COMPONENT: MetricsBar -->
+                    </div>
+
+                    <!-- Right Sidebar - Aim & Optimizer -->
+                    <div class="lg:col-span-1 space-y-6">
+                        <!-- Aim Panel -->
+                        <!-- @COMPONENT: AimPanel [start/aim/pin configuration] -->
+                        <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+                            <h3 class="text-lg font-semibold text-secondary mb-4">Shot Setup</h3>
+                            
+                            <!-- Point Pickers -->
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Start Position</label>
+                                    <button class="w-full p-3 border border-slate-200 rounded-lg text-left hover:bg-slate-50 transition-colors">
+                                        <div class="flex items-center space-x-2">
+                                            <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+                                            <span class="text-sm" data-bind="start.description">Championship Tee</span>
+                                        </div>
+                                        <p class="text-xs text-gray-500 mt-1" data-bind="start.coordinates">34.5234°N, 118.2437°W</p>
+                                    </button>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Aim Point</label>
+                                    <button class="w-full p-3 border border-slate-200 rounded-lg text-left hover:bg-slate-50 transition-colors border-primary bg-primary/5">
+                                        <div class="flex items-center space-x-2">
+                                            <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
+                                            <span class="text-sm" data-bind="aim.description">Fairway Center</span>
+                                        </div>
+                                        <p class="text-xs text-gray-500 mt-1" data-bind="aim.coordinates">34.5245°N, 118.2429°W</p>
+                                    </button>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Pin Position</label>
+                                    <button class="w-full p-3 border border-slate-200 rounded-lg text-left hover:bg-slate-50 transition-colors">
+                                        <div class="flex items-center space-x-2">
+                                            <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                                            <span class="text-sm" data-bind="pin.description">Back Right</span>
+                                        </div>
+                                        <p class="text-xs text-gray-500 mt-1" data-bind="pin.coordinates">34.5251°N, 118.2425°W</p>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Skill Selector -->
+                            <div class="mt-6">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Skill Level</label>
+                                <select class="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+                                    <option>Pro (±2.5° / ±3%)</option>
+                                    <option selected>Elite Am (±3.8° / ±4.2%)</option>
+                                    <option>Good (±5.2° / ±5.8%)</option>
+                                    <option>Average (±7.1° / ±7.5%)</option>
+                                    <option>Beginner (±10.2° / ±9.8%)</option>
+                                </select>
+                            </div>
+
+                            <!-- Max Carry -->
+                            <div class="mt-4">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Max Carry (yards)</label>
+                                <input type="number" value="280" class="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent" data-bind="maxCarry">
+                            </div>
+                        </div>
+                        <!-- @END_COMPONENT: AimPanel -->
+
+                        <!-- Dispersion Inspector -->
+                        <!-- @COMPONENT: DispersionInspector [ellipse analysis display] -->
+                        <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+                            <h3 class="text-lg font-semibold text-secondary mb-4">Dispersion Analysis</h3>
+                            
+                            <div class="space-y-4">
+                                <!-- Ellipse Dimensions -->
+                                <div>
+                                    <h4 class="text-sm font-medium text-gray-700 mb-2">Ellipse Dimensions</h4>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div class="text-center p-2 bg-slate-50 rounded">
+                                            <p class="text-lg font-bold text-primary" data-bind="ellipse.longitudinal">16.2</p>
+                                            <p class="text-xs text-gray-600">Long. (yds)</p>
+                                        </div>
+                                        <div class="text-center p-2 bg-slate-50 rounded">
+                                            <p class="text-lg font-bold text-primary" data-bind="ellipse.lateral">25.1</p>
+                                            <p class="text-xs text-gray-600">Lateral (yds)</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Sampling Info -->
+                                <div>
+                                    <h4 class="text-sm font-medium text-gray-700 mb-2">Monte Carlo Sampling</h4>
+                                    <div class="space-y-2">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">Samples:</span>
+                                            <span class="font-medium" data-bind="sampling.count">1,247</span>
+                                        </div>
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">Confidence:</span>
+                                            <span class="font-medium" data-bind="sampling.confidence">±0.024</span>
+                                        </div>
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">Status:</span>
+                                            <span class="text-green-600 font-medium" data-bind="sampling.status">Converged</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Progress Bar -->
+                                <div>
+                                    <div class="flex justify-between items-center mb-1">
+                                        <span class="text-xs text-gray-600">Sampling Progress</span>
+                                        <span class="text-xs text-gray-600" data-bind="progress.percentage">87%</span>
+                                    </div>
+                                    <div class="w-full bg-slate-200 rounded-full h-2">
+                                        <div class="bg-primary h-2 rounded-full transition-all duration-300" style="width: 87%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- @END_COMPONENT: DispersionInspector -->
+
+                        <!-- Optimizer Panel -->
+                        <!-- @COMPONENT: OptimizerPanel [aim optimization controls] -->
+                        <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+                            <h3 class="text-lg font-semibold text-secondary mb-4">Aim Optimizer</h3>
+                            
+                            <!-- Single Run Button -->
+                            <button data-event="click:runOptimizer" class="w-full py-3 px-4 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors font-medium mb-4">
+                                <i class="fas fa-play mr-2"></i>Run Optimizer
+                            </button>
+
+                            <!-- Results -->
+                            <div class="space-y-3">
+                                <h4 class="text-sm font-medium text-gray-700">Optimization Results</h4>
+                                
+                                <!-- Candidate List -->
+                                <div class="space-y-2">
+                                    <div class="p-3 bg-green-50 border border-green-200 rounded-lg">
+                                        <div class="flex justify-between items-center mb-1">
+                                            <span class="text-sm font-medium text-green-800">Optimal Aim</span>
+                                            <span class="text-xs text-green-600">Best</span>
+                                        </div>
+                                        <div class="text-sm text-green-700">
+                                            <p>ES: <span class="font-medium" data-bind="optimal.es">3.742 ± 0.021</span></p>
+                                            <p>Distance: <span class="font-medium" data-bind="optimal.distance">375 yds</span></p>
+                                        </div>
+                                    </div>
+
+                                    <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                                        <div class="flex justify-between items-center mb-1">
+                                            <span class="text-sm font-medium text-gray-700">Alternative 1</span>
+                                            <span class="text-xs text-gray-500">+0.03</span>
+                                        </div>
+                                        <div class="text-sm text-gray-600">
+                                            <p>ES: <span class="font-medium" data-bind="alt1.es">3.771 ± 0.019</span></p>
+                                            <p>Distance: <span class="font-medium" data-bind="alt1.distance">355 yds</span></p>
+                                        </div>
+                                    </div>
+
+                                    <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                                        <div class="flex justify-between items-center mb-1">
+                                            <span class="text-sm font-medium text-gray-700">Alternative 2</span>
+                                            <span class="text-xs text-gray-500">+0.07</span>
+                                        </div>
+                                        <div class="text-sm text-gray-600">
+                                            <p>ES: <span class="font-medium" data-bind="alt2.es">3.812 ± 0.025</span></p>
+                                            <p>Distance: <span class="font-medium" data-bind="alt2.distance">390 yds</span></p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- @END_COMPONENT: OptimizerPanel -->
+                    </div>
+                </div>
+            </div>
+            <!-- @END_COMPONENT: PrepareTab -->
+
+            <!-- Placeholder Tabs -->
+            <!-- @COMPONENT: PlayTab [placeholder for play functionality] -->
+            <div id="play-tab" class="tab-content hidden">
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-8 text-center">
+                    <i class="fas fa-play text-4xl text-gray-300 mb-4"></i>
+                    <h2 class="text-2xl font-bold text-gray-400 mb-2">Play Tab</h2>
+                    <p class="text-gray-500">Real-time shot tracking and game management tools</p>
+                    <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="p-4 bg-slate-50 rounded-lg">
+                            <i class="fas fa-crosshairs text-2xl text-gray-400 mb-2"></i>
+                            <h3 class="font-medium text-gray-600">Shot Tracker</h3>
+                        </div>
+                        <div class="p-4 bg-slate-50 rounded-lg">
+                            <i class="fas fa-stopwatch text-2xl text-gray-400 mb-2"></i>
+                            <h3 class="font-medium text-gray-600">Live Timing</h3>
+                        </div>
+                        <div class="p-4 bg-slate-50 rounded-lg">
+                            <i class="fas fa-clipboard-list text-2xl text-gray-400 mb-2"></i>
+                            <h3 class="font-medium text-gray-600">Scorecard</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- @END_COMPONENT: PlayTab -->
+
+            <!-- @COMPONENT: StatsTab [placeholder for statistics] -->
+            <div id="stats-tab" class="tab-content hidden">
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-8 text-center">
+                    <i class="fas fa-chart-bar text-4xl text-gray-300 mb-4"></i>
+                    <h2 class="text-2xl font-bold text-gray-400 mb-2">Stats Tab</h2>
+                    <p class="text-gray-500">Comprehensive performance analytics and metrics</p>
+                    <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Golf analytics dashboard visualization mockup -->
+                        <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&h=400" alt="Golf analytics dashboard with charts and metrics" class="rounded-lg shadow-sm">
+                        <!-- Golf performance analytics dashboard -->
+                        <img src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&h=400" alt="Golf performance analytics dashboard display" class="rounded-lg shadow-sm">
+                    </div>
+                </div>
+            </div>
+            <!-- @END_COMPONENT: StatsTab -->
+
+            <!-- @COMPONENT: TrendsTab [placeholder for trend analysis] -->
+            <div id="trends-tab" class="tab-content hidden">
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-8 text-center">
+                    <i class="fas fa-chart-line text-4xl text-gray-300 mb-4"></i>
+                    <h2 class="text-2xl font-bold text-gray-400 mb-2">Trends Tab</h2>
+                    <p class="text-gray-500">Long-term performance trends and improvement tracking</p>
+                    <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="p-4 bg-slate-50 rounded-lg">
+                            <i class="fas fa-arrow-trend-up text-2xl text-green-500 mb-2"></i>
+                            <h3 class="font-medium text-gray-600">Performance Trends</h3>
+                        </div>
+                        <div class="p-4 bg-slate-50 rounded-lg">
+                            <i class="fas fa-calendar-alt text-2xl text-blue-500 mb-2"></i>
+                            <h3 class="font-medium text-gray-600">Historical Data</h3>
+                        </div>
+                        <div class="p-4 bg-slate-50 rounded-lg">
+                            <i class="fas fa-bullseye text-2xl text-purple-500 mb-2"></i>
+                            <h3 class="font-medium text-gray-600">Goal Tracking</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- @END_COMPONENT: TrendsTab -->
+
+            <!-- @COMPONENT: DispersionTab [placeholder for advanced dispersion analysis] -->
+            <div id="dispersion-tab" class="tab-content hidden">
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-8 text-center">
+                    <i class="fas fa-bullseye text-4xl text-gray-300 mb-4"></i>
+                    <h2 class="text-2xl font-bold text-gray-400 mb-2">Dispersion Tab</h2>
+                    <p class="text-gray-500">Advanced shot dispersion analysis and modeling</p>
+                    <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="p-6 bg-slate-50 rounded-lg">
+                            <h3 class="font-medium text-gray-600 mb-4">Shot Pattern Analysis</h3>
+                            <div class="w-full h-32 bg-gradient-to-br from-blue-100 to-green-100 rounded flex items-center justify-center">
+                                <span class="text-gray-500 text-sm">Heat Map Visualization</span>
+                            </div>
+                        </div>
+                        <div class="p-6 bg-slate-50 rounded-lg">
+                            <h3 class="font-medium text-gray-600 mb-4">Confidence Ellipses</h3>
+                            <div class="w-full h-32 bg-gradient-to-br from-purple-100 to-pink-100 rounded flex items-center justify-center">
+                                <span class="text-gray-500 text-sm">Statistical Models</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- @END_COMPONENT: DispersionTab -->
+        </main>
+    </div>
+    <!-- @END_COMPONENT: AppShell -->
+
+    <script>
+        (function() {
+            // Tab switching functionality
+            function initTabSwitching() {
+                const tabButtons = document.querySelectorAll('.tab-button');
+                const tabContents = document.querySelectorAll('.tab-content');
+
+                tabButtons.forEach(button => {
+                    button.addEventListener('click', () => {
+                        const targetTab = button.getAttribute('data-tab');
+                        
+                        // Update active button
+                        tabButtons.forEach(btn => {
+                            btn.classList.remove('active', 'border-primary', 'text-primary');
+                            btn.classList.add('border-transparent', 'text-gray-500');
+                        });
+                        button.classList.add('active', 'border-primary', 'text-primary');
+                        button.classList.remove('border-transparent', 'text-gray-500');
+
+                        // Show target content
+                        tabContents.forEach(content => {
+                            content.classList.add('hidden');
+                        });
+                        document.getElementById(targetTab + '-tab').classList.remove('hidden');
+                    });
+                });
+            }
+
+            // Progressive sampling simulation
+            function simulateProgressiveSampling() {
+                const progressBar = document.querySelector('.bg-primary');
+                const progressText = document.querySelector('[data-bind="progress.percentage"]');
+                const sampleCount = document.querySelector('[data-bind="sampling.count"]');
+                const confidence = document.querySelector('[data-bind="sampling.confidence"]');
+                
+                let progress = 0;
+                let samples = 0;
+                
+                const interval = setInterval(() => {
+                    progress += Math.random() * 5;
+                    samples += Math.floor(Math.random() * 100) + 20;
+                    
+                    if (progress >= 100) {
+                        progress = 100;
+                        clearInterval(interval);
+                    }
+                    
+                    if (progressBar) progressBar.style.width = progress + '%';
+                    if (progressText) progressText.textContent = Math.floor(progress) + '%';
+                    if (sampleCount) sampleCount.textContent = samples.toLocaleString();
+                    
+                    // Simulate confidence improvement
+                    const conf = 0.05 - (progress / 100) * 0.025;
+                    if (confidence) confidence.textContent = '±' + conf.toFixed(3);
+                }, 200);
+            }
+
+            // Optimizer simulation
+            function simulateOptimizer() {
+                const runButton = document.querySelector('[data-event="click:runOptimizer"]');
+                if (runButton) {
+                    runButton.addEventListener('click', () => {
+                        runButton.disabled = true;
+                        runButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Optimizing...';
+                        
+                        // TODO: Implement actual optimizer worker integration
+                        setTimeout(() => {
+                            runButton.disabled = false;
+                            runButton.innerHTML = '<i class="fas fa-check mr-2"></i>Optimization Complete';
+                            
+                            setTimeout(() => {
+                                runButton.innerHTML = '<i class="fas fa-play mr-2"></i>Run Optimizer';
+                            }, 2000);
+                        }, 3000);
+                    });
+                }
+            }
+
+            // Initialize on DOM ready
+            document.addEventListener('DOMContentLoaded', () => {
+                initTabSwitching();
+                simulateProgressiveSampling();
+                simulateOptimizer();
+            });
+        })();
+    </script>
+
+    <style>
+        /* @STATE: Various UI states for responsive behavior */
+        .tab-button.active {
+            border-bottom-color: #0F766E;
+            color: #0F766E;
+        }
+        
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+            .lg\:col-span-1,
+            .lg\:col-span-2 {
+                grid-column: span 1 / span 1;
+            }
+            
+            /* Stack panels vertically on mobile */
+            .lg\:col-span-4 {
+                display: flex;
+                flex-direction: column;
+                gap: 1.5rem;
+            }
+        }
+
+        /* Touch-friendly controls */
+        @media (max-width: 1024px) {
+            button, select, input {
+                min-height: 44px; /* Apple's recommended touch target size */
+            }
+            
+            .grid-cols-6 button {
+                min-height: 36px;
+                min-width: 36px;
+            }
+        }
+    </style>
+</body>
+</html>

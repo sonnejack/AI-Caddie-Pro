@@ -1,0 +1,22 @@
+[
+  {
+    "id": "maketewah",
+    "name": "Maketewah CC (Cincinnati, OH)",
+    "osm": { "seeds": ["30431659", "2430431659"] }
+  },
+  {
+    "id": "oakmont",
+    "name": "Oakmont CC (Pittsburgh, PA)",
+    "osm": { "seeds": ["3606174192"] }
+  },
+  {
+    "id": "peachtree",
+    "name": "Peachtree GC (Atlanta, GA)",
+    "osm": { "seeds": ["34772911", "2434772911"] }
+  },
+  {
+    "id": "tpc-rivers-bend",
+    "name": "TPC River's Bend (Cincinnati, OH)",
+    "osm": { "seeds": ["45009763", "2445009763"] }
+  }
+]
