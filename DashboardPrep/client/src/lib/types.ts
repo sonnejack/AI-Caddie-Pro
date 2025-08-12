@@ -49,12 +49,14 @@ export type PrepareEvent =
   | { type: 'POLYGONS_CHANGED'; payload: { polygons: any[] } };
 
 export const SKILL_PRESETS: SkillPreset[] = [
-  { name: 'Pro', offlineDeg: 2.5, distPct: 3.0 },
-  { name: 'Elite Am', offlineDeg: 3.8, distPct: 4.2 },
-  { name: 'Good', offlineDeg: 5.2, distPct: 5.8 },
-  { name: 'Average', offlineDeg: 7.1, distPct: 7.5 },
-  { name: 'Bad', offlineDeg: 9.8, distPct: 9.2 },
-  { name: 'Terrible', offlineDeg: 12.5, distPct: 11.8 },
+  { name: "Robot", offlineDeg: 2.5, distPct: 2.5 },
+  { name: "Pro", offlineDeg: 5.9, distPct: 6.75 },
+  { name: "Elite Am", offlineDeg: 6.45, distPct: 6.95 },
+  { name: "Scratch", offlineDeg: 6.9, distPct: 7.3 },
+  { name: "Good Golfer", offlineDeg: 7.45, distPct: 8.0 },
+  { name: "Average Golfer", offlineDeg: 8.2, distPct: 8.75 },
+  { name: "Bad Golfer", offlineDeg: 9.4, distPct: 10.0 },
+  { name: "Terrible Golfer", offlineDeg: 12.5, distPct: 14.0 }
 ];
 
 export const CONDITION_COLORS = {

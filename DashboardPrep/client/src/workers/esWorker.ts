@@ -265,12 +265,18 @@ interface MaskBuffer {
 type ClassId = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 interface ESWorkerInput {
+  startLL?: { lat: number; lon: number };
+  aimLL?: { lat: number; lon: number };
   pin: { lat: number; lon: number };
-  points: Array<{ lat: number; lon: number }>;
+  points?: Array<{ lat: number; lon: number }>;
   mask: MaskBuffer;
   minSamples: number;
   maxSamples: number;
   epsilon: number;
+  skill?: { distPct: number; offlineDeg: number };
+  nSamples?: number;
+  returnPoints?: boolean;
+  seed?: number;
 }
 
 interface ESWorkerOutput {
@@ -282,7 +288,77 @@ interface ESWorkerOutput {
   classes: Uint8Array;      // raster class per sample, length=n
 }
 
-// Remove old engine reference
+// Common sampling functions (same as client/src/lib/sampling.ts)
+function halton2D(index: number, base1: number = 2, base2: number = 3): [number, number] {
+  function halton(i: number, base: number): number {
+    let result = 0;
+    let fraction = 1 / base;
+    let n = i;
+    
+    while (n > 0) {
+      result += (n % base) * fraction;
+      n = Math.floor(n / base);
+      fraction /= base;
+    }
+    
+    return result;
+  }
+  
+  return [halton(index, base1), halton(index, base2)];
+}
+
+function mapUnitDiskToEllipse(
+  u: number, 
+  v: number, 
+  semiMajor: number, 
+  semiMinor: number, 
+  headingRad: number,
+  centerLL: { lat: number; lon: number }
+): { lat: number; lon: number } {
+  // Transform uniform (u,v) to unit disk
+  const r = Math.sqrt(u);
+  const theta = 2 * Math.PI * v;
+  
+  // Scale by ellipse axes
+  const x_local = semiMajor * r * Math.cos(theta);
+  const y_local = semiMinor * r * Math.sin(theta);
+  
+  // Rotate by heading
+  const cos_heading = Math.cos(headingRad);
+  const sin_heading = Math.sin(headingRad);
+  
+  const x_rotated = x_local * cos_heading - y_local * sin_heading;
+  const y_rotated = x_local * sin_heading + y_local * cos_heading;
+  
+  // Convert yards to lat/lon offsets
+  const metersPerYard = 0.9144;
+  const latOffset = (y_rotated * metersPerYard) / 111320;
+  const lonOffset = (x_rotated * metersPerYard) / (111320 * Math.cos(centerLL.lat * Math.PI / 180));
+  
+  return {
+    lat: centerLL.lat + latOffset,
+    lon: centerLL.lon + lonOffset
+  };
+}
+
+function generateEllipseSamples(
+  nSamples: number,
+  semiMajor: number,
+  semiMinor: number, 
+  headingRad: number,
+  centerLL: { lat: number; lon: number },
+  seed: number = 1
+): Array<{ lat: number; lon: number }> {
+  const points: Array<{ lat: number; lon: number }> = [];
+  
+  for (let i = 0; i < nSamples; i++) {
+    const [u, v] = halton2D(seed + i);
+    const point = mapUnitDiskToEllipse(u, v, semiMajor, semiMinor, headingRad, centerLL);
+    points.push(point);
+  }
+  
+  return points;
+}
 
 // Sample class from mask
 function sampleClassFromMask(lon: number, lat: number, mask: MaskBuffer): ClassId {
@@ -325,7 +401,20 @@ function calculateDistance(p1: { lat: number; lon: number }, p2: { lat: number; 
 }
 
 self.addEventListener('message', (event: MessageEvent<ESWorkerInput>) => {
-  const { pin, points, mask, minSamples, maxSamples, epsilon } = event.data;
+  const { 
+    startLL, 
+    aimLL, 
+    pin, 
+    points, 
+    mask, 
+    minSamples, 
+    maxSamples, 
+    epsilon,
+    skill,
+    nSamples,
+    returnPoints = false,
+    seed = 1
+  } = event.data;
   
   const stats = new WelfordStats();
   const resultPointsLL: number[] = [];
@@ -333,10 +422,37 @@ self.addEventListener('message', (event: MessageEvent<ESWorkerInput>) => {
   const resultClasses: number[] = [];
   
   try {
-    // Process each point
+    let samplePoints: Array<{ lat: number; lon: number }>;
+    
+    // Generate points using ellipse sampling if startLL, aimLL, skill provided
+    if (startLL && aimLL && skill && nSamples) {
+      // Calculate ellipse parameters
+      const distance = calculateDistance(startLL, aimLL) * 1.09361; // Convert to yards
+      const semiMajor = (skill.distPct / 100) * distance;
+      const semiMinor = distance * Math.tan(skill.offlineDeg * Math.PI / 180);
+      
+      // Calculate heading from start to aim (ensure consistency with client)
+      const dLon = aimLL.lon - startLL.lon;
+      const dLat = aimLL.lat - startLL.lat;
+      const headingRad = Math.atan2(dLon * Math.cos(startLL.lat * Math.PI / 180), dLat);
+      
+      // Generate samples
+      samplePoints = generateEllipseSamples(nSamples, semiMajor, semiMinor, headingRad, aimLL, seed);
+      console.log(`📦 Worker generated ${samplePoints.length} ellipse samples`);
+    } else if (points) {
+      // Use provided points
+      samplePoints = points;
+      console.log(`📦 Worker using ${samplePoints.length} provided points`);
+    } else {
+      throw new Error('Either ellipse parameters or points array must be provided');
+    }
+    
+    // Process each point - for auto-sampling, process ALL points without early stopping
     let processedCount = 0;
-    for (let i = 0; i < points.length && i < maxSamples; i++) {
-      const point = points[i];
+    const targetSamples = returnPoints ? samplePoints.length : Math.min(samplePoints.length, maxSamples);
+    
+    for (let i = 0; i < targetSamples; i++) {
+      const point = samplePoints[i];
       
       // Sample class from mask
       const classId = sampleClassFromMask(point.lon, point.lat, mask);
@@ -361,8 +477,8 @@ self.addEventListener('message', (event: MessageEvent<ESWorkerInput>) => {
       
       processedCount++;
       
-      // Check early stopping condition
-      if (processedCount >= minSamples && stats.ci95 <= epsilon) {
+      // Only apply early stopping if NOT returning points (i.e., traditional ES calculation)
+      if (!returnPoints && processedCount >= minSamples && stats.ci95 <= epsilon) {
         break;
       }
     }
@@ -380,6 +496,8 @@ self.addEventListener('message', (event: MessageEvent<ESWorkerInput>) => {
       distsYds,
       classes
     };
+    
+    console.log(`✅ Worker completed: ${result.n} samples processed, mean=${result.mean.toFixed(3)}, ci95=${result.ci95.toFixed(3)}`);
     
     // Transfer typed arrays for efficiency
     self.postMessage(result, [pointsLL.buffer, distsYds.buffer, classes.buffer]);

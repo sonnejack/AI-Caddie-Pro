@@ -1,220 +1,112 @@
-declare const Cesium: any;
+// client/src/components/prepare/SamplesLayer.ts
+// Singleton Samples Layer for Cesium – PointPrimitiveCollection pool
 
-export type ClassId = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+declare const window: any;
 
-interface SamplePoint {
-  position: { lon: number; lat: number };
-  classId: ClassId;
-}
+type Maybe<T> = T | null;
 
-interface SamplesLayerState {
-  viewer: any;
-  pointCollection: any;
-  visible: boolean;
-}
+let viewerRef: Maybe<any> = null;
+let collection: Maybe<any> = null;
+let pool: any[] = [];
+let capacity = 0;
+let initialized = false;
 
-// Color mapping for raster classes (final specification)
-const CLASS_COLORS: Record<ClassId, string> = {
-  0: '#8B5E3C', // Unknown → Rough
-  1: '#8E44AD', // OB → Purple
-  2: '#0078FF', // Water → Blue  
-  3: '#E74C3C', // Hazard → Red
-  4: '#D2B48C', // Bunker → Tan
-  5: '#6CFF8A', // Green → Light Green
-  6: '#28B43C', // Fairway → Dark Green
-  7: '#8E44AD', // Recovery → Purple (same as OB)
-  8: '#8B5E3C'  // Rough → Brown
-};
+const getCesium = () => (window as any).Cesium;
+const PREVIEW_COLOR = () => getCesium().Color.fromBytes(153, 153, 153, 255); // grey
 
-let currentLayer: SamplesLayerState | null = null;
-
-/**
- * Initialize or get existing samples layer
- */
-function getOrCreateSamplesLayer(viewer: any): SamplesLayerState {
-  if (currentLayer && currentLayer.viewer === viewer) {
-    return currentLayer;
-  }
-
-  // Clean up existing layer if viewer changed
-  if (currentLayer) {
-    hideSamples();
-  }
-
-  // Create new point primitive collection
-  const pointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
-  
-  currentLayer = {
-    viewer,
-    pointCollection,
-    visible: false
-  };
-
-  return currentLayer;
-}
-
-/**
- * Update samples display with new data
- */
-export function updateSamples(
-  viewer: any,
-  points: { lon: number; lat: number }[],
-  classes: Uint8Array,
-  visible: boolean = false
-): void {
-  if (!viewer || !points || !classes || points.length !== classes.length) {
-    console.warn('Invalid samples data provided');
-    return;
-  }
-
-  const layer = getOrCreateSamplesLayer(viewer);
-  
-  try {
-    // Clear existing points
-    layer.pointCollection.removeAll();
-
-    // Add new points if visible
-    if (visible && points.length > 0) {
-      for (let i = 0; i < points.length; i++) {
-        const point = points[i];
-        const classId = Math.min(8, Math.max(0, classes[i])) as ClassId;
-        const colorHex = CLASS_COLORS[classId];
-        const cesiumColor = Cesium.Color.fromCssColorString(colorHex);
-
-        layer.pointCollection.add({
-          position: Cesium.Cartesian3.fromDegrees(point.lon, point.lat),
-          pixelSize: 4,
-          color: cesiumColor,
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 1,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY
-        });
-      }
-    }
-
-    layer.visible = visible;
-    console.log(`Updated samples layer: ${points.length} points, visible: ${visible}`);
-  } catch (error) {
-    console.error('Error updating samples:', error);
+// Class mapping -> colors
+// 0 UNKNOWN, 1 OB, 2 WATER, 3 HAZARD, 4 BUNKER, 5 GREEN, 6 FAIRWAY, 7 RECOVERY, 8 ROUGH, 9 TEE(optional)
+function colorForClass(cls: number): any {
+  const Cesium = getCesium();
+  switch (cls | 0) {
+    case 6: return Cesium.Color.fromBytes(40, 180, 60, 255);   // fairway #28B43C
+    case 5: return Cesium.Color.fromBytes(108, 255, 138, 255); // green   #6CFF8A
+    case 2: return Cesium.Color.fromBytes(0, 120, 255, 255);   // water   #0078FF
+    case 8: return Cesium.Color.fromBytes(139, 94, 60, 255);   // rough   #8B5E3C (brown)
+    case 4: return Cesium.Color.fromBytes(210, 180, 140, 255); // bunker  #D2B48C
+    case 7: return Cesium.Color.fromBytes(142, 68, 173, 255);  // recovery/hazard/OB purple base
+    case 3: return Cesium.Color.fromBytes(231, 76, 60, 255);   // hazard  #E74C3C
+    case 1: return Cesium.Color.fromBytes(142, 68, 173, 255);  // OB uses same purple in UI
+    case 9: return Cesium.Color.fromBytes(211, 211, 211, 255); // tee light gray
+    default: return PREVIEW_COLOR(); // unknown/preview
   }
 }
 
-/**
- * Show samples layer
- */
-export function showSamples(): void {
-  if (!currentLayer) {
-    console.warn('No samples layer to show');
-    return;
+function ensureCapacity(minCapacity: number) {
+  if (!viewerRef || !collection) return;
+  if (minCapacity <= capacity) return;
+
+  const Cesium = getCesium();
+  const toAdd = minCapacity - capacity;
+  for (let i = 0; i < toAdd; i++) {
+    const p = collection.add({
+      position: Cesium.Cartesian3.fromDegrees(0, 0),
+      pixelSize: 5,
+      color: PREVIEW_COLOR(),
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 0,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      show: false,
+    });
+    pool.push(p);
   }
-
-  currentLayer.pointCollection.show = true;
-  currentLayer.visible = true;
+  capacity = minCapacity;
 }
 
-/**
- * Hide samples layer
- */
-export function hideSamples(): void {
-  if (!currentLayer) return;
+export function initSamplesLayer(viewer: any, initialCapacity = 1200) {
+  if (initialized) return;
+  const Cesium = getCesium();
+  viewerRef = viewer;
+  collection = new Cesium.PointPrimitiveCollection();
+  viewer.scene.primitives.add(collection);
+  ensureCapacity(initialCapacity);
+  initialized = true;
+}
 
-  try {
-    currentLayer.pointCollection.show = false;
-    currentLayer.visible = false;
-  } catch (error) {
-    console.error('Error hiding samples:', error);
+export function showSamples(flag: boolean) {
+  if (collection) collection.show = flag;
+}
+
+export function setSamples(pointsLL: Float64Array, classes?: Uint8Array) {
+  if (!viewerRef) return;
+  const n = Math.floor(pointsLL.length / 2);
+  if (n <= 0) { clearSamplesLayer(); return; }
+
+  const Cesium = getCesium();
+  ensureCapacity(n);
+
+  // Update active points
+  let idx = 0;
+  for (; idx < n; idx++) {
+    const lon = pointsLL[2 * idx];
+    const lat = pointsLL[2 * idx + 1];
+    const point = pool[idx];
+
+    point.position = Cesium.Cartesian3.fromDegrees(lon, lat, 0);
+    point.color = classes ? colorForClass(classes[idx]) : PREVIEW_COLOR();
+    point.show = true;
   }
-}
-
-/**
- * Toggle samples visibility
- */
-export function toggleSamples(): boolean {
-  if (!currentLayer) {
-    console.warn('No samples layer to toggle');
-    return false;
-  }
-
-  const newVisible = !currentLayer.visible;
-  
-  if (newVisible) {
-    showSamples();
-  } else {
-    hideSamples();
-  }
-
-  return newVisible;
-}
-
-/**
- * Check if samples are currently visible
- */
-export function areSamplesVisible(): boolean {
-  return currentLayer?.visible ?? false;
-}
-
-/**
- * Get current samples count
- */
-export function getSamplesCount(): number {
-  if (!currentLayer || !currentLayer.pointCollection) return 0;
-  return currentLayer.pointCollection.length;
-}
-
-/**
- * Clear all samples and destroy layer
- */
-export function destroySamplesLayer(): void {
-  if (!currentLayer) return;
-
-  try {
-    if (currentLayer.pointCollection) {
-      currentLayer.viewer.scene.primitives.remove(currentLayer.pointCollection);
-    }
-  } catch (error) {
-    console.error('Error destroying samples layer:', error);
-  }
-
-  currentLayer = null;
-}
-
-/**
- * Set samples visibility without clearing data
- */
-export function setSamplesVisibility(visible: boolean): void {
-  if (!currentLayer) return;
-
-  try {
-    currentLayer.pointCollection.show = visible;
-    currentLayer.visible = visible;
-  } catch (error) {
-    console.error('Error setting samples visibility:', error);
+  // Hide remaining
+  for (; idx < capacity; idx++) {
+    pool[idx].show = false;
   }
 }
 
-/**
- * Get color for a specific class ID (for UI display)
- */
-export function getClassColor(classId: ClassId): string {
-  return CLASS_COLORS[Math.min(8, Math.max(0, classId)) as ClassId];
+export function clearSamplesLayer() {
+  if (!collection) return;
+  for (let i = 0; i < capacity; i++) pool[i].show = false;
 }
 
-/**
- * Get class name for display
- */
-export function getClassName(classId: ClassId): string {
-  const names: Record<ClassId, string> = {
-    0: 'Unknown',
-    1: 'OB',
-    2: 'Water',
-    3: 'Hazard',
-    4: 'Bunker',
-    5: 'Green',
-    6: 'Fairway',
-    7: 'Recovery',
-    8: 'Rough'
-  };
-  
-  return names[Math.min(8, Math.max(0, classId)) as ClassId] || 'Unknown';
+export function destroySamplesLayer() {
+  if (viewerRef && collection) {
+    try {
+      viewerRef.scene.primitives.remove(collection);
+    } catch { /* ignore */ }
+  }
+  collection = null;
+  viewerRef = null;
+  pool = [];
+  capacity = 0;
+  initialized = false;
 }

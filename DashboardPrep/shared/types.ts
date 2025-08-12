@@ -7,11 +7,14 @@ export type SkillPreset = {
 };
 
 export const SKILL_PRESETS: SkillPreset[] = [
-  { name: "Tour Pro", offlineDeg: 3.2, distPct: 2.8 },
-  { name: "Elite Am", offlineDeg: 5.9, distPct: 4.7 },
-  { name: "Good Am", offlineDeg: 8.1, distPct: 6.3 },
-  { name: "Average", offlineDeg: 12.4, distPct: 9.8 },
-  { name: "Beginner", offlineDeg: 18.7, distPct: 14.2 }
+  { name: "Robot", offlineDeg: 2.5, distPct: 2.5 },
+  { name: "Pro", offlineDeg: 5.9, distPct: 6.75 },
+  { name: "Elite Am", offlineDeg: 6.45, distPct: 6.95 },
+  { name: "Scratch", offlineDeg: 6.9, distPct: 7.3 },
+  { name: "Good Golfer", offlineDeg: 7.45, distPct: 8.0 },
+  { name: "Average Golfer", offlineDeg: 8.2, distPct: 8.75 },
+  { name: "Bad Golfer", offlineDeg: 9.4, distPct: 10.0 },
+  { name: "Terrible Golfer", offlineDeg: 12.5, distPct: 14.0 }
 ];
 
 export type MaskMeta = {

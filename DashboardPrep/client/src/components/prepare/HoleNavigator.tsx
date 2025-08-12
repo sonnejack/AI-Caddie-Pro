@@ -111,11 +111,11 @@ export default function HoleNavigator({
       const startPoint = endpoints.teeLL;
       const pinPoint = endpoints.greenLL;
       
-      // Aim point is along the polyline at 40% distance or 150 yards, whichever is smaller
-      let aimDistance = 150; // default
+      // Aim point is along the polyline at 100% distance or 300 yards, whichever is smaller
+      let aimDistance = 300; // default
       if (polylineData.dist) {
         const totalDistance = parseFloat(polylineData.dist);
-        aimDistance = Math.min(totalDistance * 0.4, 150);
+        aimDistance = Math.min(totalDistance * 1, 150);
       }
       const aimPoint = pointAlongPolylineYds(holePolyline.positions, aimDistance);
       

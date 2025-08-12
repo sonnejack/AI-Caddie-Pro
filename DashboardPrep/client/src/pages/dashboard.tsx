@@ -24,6 +24,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('prepare');
   const [currentHole, setCurrentHole] = useState(1);
   const [loadingCourse, setLoadingCourse] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState({ stage: '', progress: 0 });
   const [holeMarkers, setHoleMarkers] = useState<Array<{number: number, par: number, coordinates: [number, number]}>>([]);
   const [esResult, setESResult] = useState<{
     mean: number;
@@ -127,6 +128,7 @@ export default function Dashboard() {
   const handleCourseSelect = async (course: { id: string; name: string; osm: { seeds: string[] } }) => {
     try {
       setLoadingCourse(true);
+      setLoadingProgress({ stage: 'Importing course data from OpenStreetMap...', progress: 10 });
       console.log('🏌️ Starting course import for:', course.name);
       
       // Import course data from OSM
@@ -142,13 +144,19 @@ export default function Dashboard() {
         throw new Error('Failed to import course');
       }
 
+      setLoadingProgress({ stage: 'Processing course features...', progress: 40 });
       const importData: ImportResponse = await response.json();
       console.log('🎯 Course import successful:', importData.course);
       console.log('🎯 Features structure:', Object.keys(importData.features || {}));
       console.log('🎯 Features:', importData.features);
       
+      // Count total features for progress tracking
+      const totalFeatures = Object.values(importData.features || {}).flat().length;
+      setLoadingProgress({ stage: `Processing ${totalFeatures} course features...`, progress: 50 });
+      
       // Create client-side mask from features (strict polygon-only)
       console.log('🎨 Creating client-side mask from features...');
+      setLoadingProgress({ stage: 'Creating course raster mask...', progress: 70 });
       const maskResult = createMaskFromFeatures(importData.features, importData.course.bbox);
       console.log('✅ Mask created:', { 
         width: maskResult.width, 
@@ -159,6 +167,7 @@ export default function Dashboard() {
       });
       
       // Create legacy maskBuffer for compatibility
+      setLoadingProgress({ stage: 'Preparing course data structures...', progress: 80 });
       const maskBuffer = {
         width: maskResult.width,
         height: maskResult.height,
@@ -175,6 +184,8 @@ export default function Dashboard() {
           dist: hole.polyline.dist
         });
       });
+      
+      setLoadingProgress({ stage: 'Initializing 3D visualization...', progress: 90 });
       
       // Update prepare state
       setCourseId(course.id);
@@ -220,14 +231,22 @@ export default function Dashboard() {
       setEs(undefined);
       setBest(undefined);
       
+      setLoadingProgress({ stage: 'Course loaded successfully!', progress: 100 });
+      
       console.log('🏁 Course loading complete!', {
         courseId: course.id,
         courseName: course.name,
         bbox: importData.course.bbox
       });
       
+      // Small delay to show completion message
+      setTimeout(() => {
+        setLoadingProgress({ stage: '', progress: 0 });
+      }, 1000);
+      
     } catch (error) {
       console.error('❌ Failed to load course:', error);
+      setLoadingProgress({ stage: 'Error loading course', progress: 0 });
       // TODO: Show error message to user
     } finally {
       setLoadingCourse(false);
@@ -270,6 +289,37 @@ export default function Dashboard() {
           esResult={esResult}
           vectorFeatures={vectorFeatures}
           vectorLayerToggles={vectorLayerToggles}
+          loadingCourse={loadingCourse}
+          loadingProgress={loadingProgress}
+          onESWorkerCall={async (params) => {
+            // Create worker and call it with the params
+            try {
+              const worker = new Worker('/src/workers/esWorker.ts', { type: 'module' });
+              
+              return new Promise((resolve, reject) => {
+                worker.onmessage = (event) => {
+                  const result = event.data;
+                  if (result.error) {
+                    reject(new Error(result.error));
+                  } else {
+                    // Update the ES result state
+                    setESResult(result);
+                    resolve(result);
+                  }
+                  worker.terminate();
+                };
+                
+                worker.onerror = (error) => {
+                  reject(error);
+                  worker.terminate();
+                };
+                
+                worker.postMessage(params);
+              });
+            } catch (error) {
+              console.error('Error creating ES worker:', error);
+            }
+          }}
         />
         <MetricsBar state={state} />
       </div>

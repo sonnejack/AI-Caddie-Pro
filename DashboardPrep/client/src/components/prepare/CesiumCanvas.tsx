@@ -1,14 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { Progress } from '@/components/ui/progress';
 import { PrepareState, LatLon } from '../../lib/types';
 import { colorizeMaskToCanvas, edgesMaskToCanvas, showRasterLayer, hideRasterLayer } from '@/lib/rasterOverlay';
 import type { MaskBuffer } from '@/lib/maskBuffer';
-import { updateSamples, setSamplesVisibility } from './SamplesLayer';
+import {
+  initSamplesLayer,
+  showSamples as setSamplesVisibility,
+  setSamples,
+  clearSamplesLayer,
+  destroySamplesLayer,
+} from './SamplesLayer';
 import { showHolePolyline, hideHolePolyline } from './HolePolylineLayer';
 import { showVectorFeatures, clearVectorFeatures } from './VectorFeatureLayers';
+import { generateEllipseSamples } from '@/lib/sampling';
 
 interface ESResult {
   mean: number;
@@ -29,6 +37,21 @@ interface CesiumCanvasProps {
   holeEndpoints?: { teeLL: LatLon; greenLL: LatLon; primaryGreen: any };
   vectorFeatures?: any; // ImportResponse['holes'][0]['features']
   vectorLayerToggles?: Record<string, boolean>;
+  nSamples?: number;
+  onESWorkerCall?: (params: any) => void;
+  loadingCourse?: boolean;
+  loadingProgress?: { stage: string; progress: number };
+}
+
+// Helper function to calculate distance in yards
+function calculateDistanceYards(p1: LatLon, p2: LatLon): number {
+  const R = 6371000; // Earth's radius in meters
+  const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+  const dLon = (p2.lon - p1.lon) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + 
+    Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c * 1.09361; // Convert to yards
 }
 
 function CesiumCanvas({ 
@@ -40,7 +63,11 @@ function CesiumCanvas({
   holePolyline,
   holeEndpoints,
   vectorFeatures,
-  vectorLayerToggles = {}
+  vectorLayerToggles = {},
+  nSamples,
+  onESWorkerCall,
+  loadingCourse = false,
+  loadingProgress = { stage: '', progress: 0 }
 }: CesiumCanvasProps) {
   const viewerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -52,8 +79,12 @@ function CesiumCanvas({
   const [slopeArrows, setSlopeArrows] = useState(false);
   const [photorealEnabled, setPhotorealEnabled] = useState(false);
   const [rasterMode, setRasterMode] = useState<'off' | 'fill' | 'edges'>('off');
-  const [showSamples, setShowSamples] = useState(false);
+  const [showSamples, setShowSamples] = useState(true);
+  const [samplesCount, setSamplesCount] = useState(nSamples || 600);
   const samplePointsRef = useRef<any>(null);
+  const workerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const workerRef = useRef<Worker | null>(null);
+  const lastParamsRef = useRef<string>('');
 
 
   // Update refs when props change
@@ -109,6 +140,10 @@ function CesiumCanvas({
       });
 
         viewerRef.current = viewer;
+        
+        // Initialize SamplesLayer
+        initSamplesLayer(viewer);
+        
         setViewerReady(true);
         initializingRef.current = false;
 
@@ -121,6 +156,17 @@ function CesiumCanvas({
     initializeCesium();
 
     return () => {
+      // Cleanup timeout and worker
+      if (workerTimeoutRef.current) {
+        clearTimeout(workerTimeoutRef.current);
+      }
+      if (workerRef.current) {
+        workerRef.current.terminate();
+      }
+      
+      // Cleanup samples layer
+      destroySamplesLayer();
+      
       if (viewerRef.current) {
         viewerRef.current.destroy();
         viewerRef.current = null;
@@ -129,22 +175,155 @@ function CesiumCanvas({
     };
   }, []);
 
-  // Handle samples visualization
+  // Auto-generate samples with debounced effect
   useEffect(() => {
-    if (!viewerRef.current || !viewerReady || !esResult) return;
-
-    // Convert Float64Array to regular array of positions
-    const points: { lon: number; lat: number }[] = [];
-    for (let i = 0; i < esResult.pointsLL.length; i += 2) {
-      points.push({
-        lon: esResult.pointsLL[i],
-        lat: esResult.pointsLL[i + 1]
-      });
+    if (!viewerReady) return;
+    
+    // Clear previous timeout and cancel any running worker
+    if (workerTimeoutRef.current) {
+      clearTimeout(workerTimeoutRef.current);
     }
+    if (workerRef.current) {
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
+    
+    // Check if we have the required points for dispersion oval
+    if (!state.start || !state.aim || !state.pin || !state.skillPreset) {
+      clearSamplesLayer();
+      lastParamsRef.current = '';
+      return;
+    }
+    
+    // Create parameter signature to detect changes
+    const currentParams = JSON.stringify({
+      start: state.start,
+      aim: state.aim,
+      pin: state.pin,
+      skill: state.skillPreset,
+      samples: samplesCount,
+      show: showSamples
+    });
+    
+    // Skip if parameters haven't changed
+    if (currentParams === lastParamsRef.current) {
+      return;
+    }
+    lastParamsRef.current = currentParams;
+    
+    // Calculate ellipse parameters
+    const distance = calculateDistanceYards(state.start, state.aim);
+    
+    // Validate distance is reasonable
+    if (distance <= 0 || distance > 1000) {
+      console.warn('Invalid distance for ellipse calculation:', distance);
+      clearSamplesLayer();
+      return;
+    }
+    
+    const semiMajor = (state.skillPreset.distPct / 100) * distance;
+    const semiMinor = distance * Math.tan(state.skillPreset.offlineDeg * Math.PI / 180);
+    
+    // Validate ellipse parameters
+    if (semiMajor <= 0 || semiMinor <= 0 || !isFinite(semiMajor) || !isFinite(semiMinor)) {
+      console.warn('Invalid ellipse parameters:', { semiMajor, semiMinor });
+      clearSamplesLayer();
+      return;
+    }
+    
+    // Calculate heading from start to aim (corrected for proper orientation)
+    const dLon = state.aim.lon - state.start.lon;
+    const dLat = state.aim.lat - state.start.lat;
+    // Standard geographic bearing: 0 = North, π/2 = East, π = South, 3π/2 = West
+    const headingRad = Math.atan2(dLon * Math.cos(state.start.lat * Math.PI / 180), dLat);
+    
+    // Validate heading
+    if (!isFinite(headingRad)) {
+      console.warn('Invalid heading calculation');
+      clearSamplesLayer();
+      return;
+    }
+    
+    try {
+      // Generate preview points immediately (gray)
+      const previewPoints = generateEllipseSamples(
+        samplesCount,
+        semiMajor,
+        semiMinor,
+        headingRad,
+        state.aim,
+        1 // seed
+      );
+      
+      // Show preview points
+      setSamples(previewPoints);
+      setSamplesVisibility(showSamples);
+    } catch (error) {
+      console.error('Error generating preview samples:', error);
+      clearSamplesLayer();
+      return;
+    }
+    
+    // Debounced worker call
+    workerTimeoutRef.current = setTimeout(() => {
+      if (onESWorkerCall && maskBuffer) {
+        console.log('🔄 Calling ES worker with params:', {
+          startLL: state.start,
+          aimLL: state.aim,
+          pin: state.pin,
+          skill: state.skillPreset,
+          nSamples: samplesCount
+        });
+        
+        onESWorkerCall({
+          startLL: state.start,
+          aimLL: state.aim,
+          pin: state.pin,
+          skill: state.skillPreset,
+          nSamples: samplesCount,
+          returnPoints: true,
+          seed: 1,
+          mask: maskBuffer,
+          minSamples: Math.min(100, samplesCount),
+          maxSamples: samplesCount,
+          epsilon: 0.02
+        }).catch(error => {
+          console.error('ES worker failed:', error);
+        });
+      } else {
+        console.warn('⚠️ ES worker call skipped:', { 
+          hasWorkerCall: !!onESWorkerCall, 
+          hasMaskBuffer: !!maskBuffer 
+        });
+      }
+    }, 300); // Increased debounce time
+    
+  }, [state.start, state.aim, state.pin, state.skillPreset, samplesCount, showSamples, viewerReady, maskBuffer, onESWorkerCall]);
 
-    // Update samples layer with new data
-    updateSamples(viewerRef.current, points, esResult.classes, showSamples);
-  }, [viewerRef.current, viewerReady, esResult, showSamples]);
+  // Handle ES result updates (recolor points with classes)
+  useEffect(() => {
+    if (!esResult) return;
+    
+    console.log('🎨 Updating samples with ES result:', {
+      hasPointsLL: !!esResult.pointsLL,
+      hasClasses: !!esResult.classes,
+      pointsCount: esResult.pointsLL ? esResult.pointsLL.length / 2 : 0,
+      classesCount: esResult.classes ? esResult.classes.length : 0,
+      mean: esResult.mean,
+      ci95: esResult.ci95
+    });
+    
+    try {
+      // Update points with classes from ES result
+      if (esResult.pointsLL && esResult.classes) {
+        setSamples(esResult.pointsLL, esResult.classes);
+        console.log('✅ Successfully updated samples with classes');
+      }
+    } catch (error) {
+      console.error('Error updating samples with ES result:', error);
+    }
+    
+  }, [esResult]);
 
   // Handle hole polyline display
   useEffect(() => {
@@ -177,10 +356,7 @@ function CesiumCanvas({
     
     showVectorFeatures(viewerRef.current, vectorFeatures, vectorLayerToggles);
     
-    return () => {
-      clearVectorFeatures(viewerRef.current);
-    };
-  }, [viewerRef.current, viewerReady, vectorFeatures, vectorLayerToggles]);
+  }, [viewerRef.current, viewerReady, vectorFeatures, vectorLayerToggles, state.maskPngMeta?.bbox]);
 
   // Handle camera fly-to
   useEffect(() => {
@@ -254,9 +430,7 @@ function CesiumCanvas({
   // Handle samples visibility toggle
   const handleSamplesToggle = (visible: boolean) => {
     setShowSamples(visible);
-    if (viewerRef.current && viewerReady) {
-      setSamplesVisibility(visible);
-    }
+    setSamplesVisibility(visible);
   };
 
   // Handle camera positioning for new course
@@ -389,31 +563,100 @@ function CesiumCanvas({
       });
     }
 
-    // Add raster mask overlay if available
-    if (state.maskPngMeta && state.maskPngMeta.bbox) {
+    // Create tight bbox around golf features only (red, 8px thick)
+    if (state.maskPngMeta && state.maskPngMeta.bbox && vectorFeatures) {
       const maskBbox = state.maskPngMeta.bbox;
+      console.log('🔴 Checking vectorFeatures:', !!vectorFeatures, vectorFeatures ? Object.keys(vectorFeatures) : 'none');
       
-      // Create a ground-clamped course boundary outline
-      const maskRectangle = viewer.entities.add({
-        rectangle: {
-          coordinates: (window as any).Cesium.Rectangle.fromDegrees(
-            maskBbox.west, 
-            maskBbox.south, 
-            maskBbox.east, 
-            maskBbox.north
-          ),
-          material: (window as any).Cesium.Color.TRANSPARENT,
-          outline: true,
-          outlineColor: (window as any).Cesium.Color.RED.withAlpha(0.8),
-          height: 0,
-          heightReference: (window as any).Cesium.HeightReference.CLAMP_TO_GROUND,
-          fill: false
+      const golfFeatures = [];
+      
+      // Collect golf features (exclude OB, water hazards that extend far)
+      Object.entries(vectorFeatures).forEach(([type, featuresData]: [string, any]) => {
+        console.log('🔴 Processing feature type:', type, 'with data:', featuresData);
+        if (['fairways', 'greens', 'tees', 'bunkers'].includes(type)) {
+          // Check if it's an object with features array, or direct array
+          let features = featuresData;
+          if (featuresData && typeof featuresData === 'object' && !Array.isArray(featuresData)) {
+            // If it's an object, look for common properties like 'features', 'data', etc.
+            features = featuresData.features || featuresData.data || featuresData;
+          }
+          if (Array.isArray(features)) {
+            console.log('🔴 Adding', features.length, 'features from', type);
+            golfFeatures.push(...features);
+          } else {
+            console.log('🔴 No array found in', type, '- structure:', Object.keys(featuresData || {}));
+          }
         }
       });
+      
+      if (golfFeatures.length > 0) {
+        console.log('🔴 Creating red tight bbox with', golfFeatures.length, 'golf features');
+        // Calculate tight bounding box
+        let minLat = Infinity, maxLat = -Infinity;
+        let minLon = Infinity, maxLon = -Infinity;
+        
+        golfFeatures.forEach(feature => {
+          if (feature.geometry && feature.geometry.coordinates) {
+            const coords = feature.geometry.coordinates;
+            const flattenCoords = (arr: any[]): number[][] => {
+              if (typeof arr[0] === 'number') return [arr as number[]];
+              return arr.flatMap(flattenCoords);
+            };
+            
+            flattenCoords(coords).forEach(([lon, lat]) => {
+              if (typeof lon === 'number' && typeof lat === 'number') {
+                minLat = Math.min(minLat, lat);
+                maxLat = Math.max(maxLat, lat);
+                minLon = Math.min(minLon, lon);
+                maxLon = Math.max(maxLon, lon);
+              }
+            });
+          }
+        });
+        
+        // Add small buffer (10 yards ≈ 0.00009 degrees)
+        const buffer = 0.00009;
+        const tightBbox = {
+          west: minLon - buffer,
+          south: minLat - buffer,
+          east: maxLon + buffer,
+          north: maxLat + buffer
+        };
+        
+        // Create tight bbox outline (red, 8px thick, ground clamped)
+        console.log('🔴 Adding red rectangle entity with bbox:', tightBbox);
+        const tightRectangle = viewer.entities.add({
+          id: 'tight-bbox',
+          rectangle: {
+            coordinates: (window as any).Cesium.Rectangle.fromDegrees(
+              tightBbox.west,
+              tightBbox.south,
+              tightBbox.east,
+              tightBbox.north
+            ),
+            material: (window as any).Cesium.Color.TRANSPARENT,
+            outline: true,
+            outlineColor: (window as any).Cesium.Color.RED.withAlpha(0.9),
+            outlineWidth: 8,
+            height: 0,
+            heightReference: (window as any).Cesium.HeightReference.CLAMP_TO_GROUND,
+            fill: false
+          }
+        });
+        
+        console.log('📏 Tight bbox area reduction vs original:', {
+          original: maskBbox,
+          tight: tightBbox,
+          areaReduction: `${(100 * (1 - (
+            (tightBbox.east - tightBbox.west) * (tightBbox.north - tightBbox.south) /
+            ((maskBbox.east - maskBbox.west) * (maskBbox.north - maskBbox.south))
+          ))).toFixed(1)}%`
+        });
+      }
     }
 
     viewer.scene.requestRender();
-  }, [state.start, state.aim, state.pin, state.skillPreset, state.maskPngMeta, viewerReady]);
+  }, [state.start, state.aim, state.pin, state.skillPreset, state.maskPngMeta, vectorFeatures, viewerReady]);
 
   // Handle raster overlay mode changes
   useEffect(() => {
@@ -443,7 +686,7 @@ function CesiumCanvas({
         return Cesium.Color.fromCssColorString('#6CFF8A');
       case 2: // Water
         return Cesium.Color.fromCssColorString('#0078FF');
-      case 8: // Rough
+      case 8: // Rough (brown)
         return Cesium.Color.fromCssColorString('#8B5E3C');
       case 4: // Bunker
         return Cesium.Color.fromCssColorString('#D2B48C');
@@ -624,21 +867,87 @@ function CesiumCanvas({
             </Button>
           </div>
         </div>
+        
+        {/* Samples Control Row */}
+        {showSamples && (
+          <div className="flex items-center justify-between text-sm px-2 py-1 bg-slate-50 border-b">
+            <span className="text-gray-600">Samples:</span>
+            <div className="flex items-center space-x-2">
+              <input
+                type="range"
+                min="100"
+                max="1200"
+                step="50"
+                value={samplesCount}
+                onChange={(e) => setSamplesCount(Number(e.target.value))}
+                className="w-24 h-2"
+              />
+              <span className="font-mono text-xs min-w-[3rem] text-right">{samplesCount}</span>
+            </div>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="p-0">
         {/* 3D Canvas Container */}
         <div className="relative h-96 bg-gradient-to-br from-green-100 to-green-200">
           <div ref={containerRef} className="absolute inset-0" />
           
-          {!viewerReady && (
+          {(!viewerReady || loadingCourse) && (
             <div className="absolute inset-0 bg-black bg-opacity-10 flex items-center justify-center">
-              <div className="text-center text-white">
-                <i className="fas fa-globe text-4xl mb-2 opacity-70"></i>
-                <p className="text-sm opacity-70">Loading 3D Course Visualization</p>
-                <p className="text-xs opacity-50">Cesium Integration</p>
+              <div className="text-center text-white max-w-sm">
+                {loadingCourse && loadingProgress.stage ? (
+                  <>
+                    {/* Custom CSS Loader */}
+                    <div className="flex justify-center mb-4">
+                      <div className="course-loader"></div>
+                    </div>
+                    <h3 className="text-lg font-semibold mb-2 opacity-90">
+                      {state.courseId ? state.courseId.replace(/[-_]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Loading Course'}
+                    </h3>
+                    <p className="text-sm opacity-80">{loadingProgress.stage}</p>
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-globe text-4xl mb-4 opacity-70"></i>
+                    <p className="text-sm opacity-70">Loading 3D Course Visualization</p>
+                    <p className="text-xs opacity-50">Cesium Integration</p>
+                  </>
+                )}
               </div>
             </div>
           )}
+          
+          {/* CSS for custom loader */}
+          <style dangerouslySetInnerHTML={{
+            __html: `
+              .course-loader {
+                width: 40px;
+                aspect-ratio: 1;
+                color: #3b82f6;
+                position: relative;
+                background:
+                  conic-gradient(from 134deg at top, currentColor 92deg, transparent 0) top,
+                  conic-gradient(from -46deg at bottom, currentColor 92deg, transparent 0) bottom;
+                background-size: 100% 50%;
+                background-repeat: no-repeat;
+              }
+              .course-loader:before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                --g: currentColor 14.5px, transparent 0 calc(100% - 14.5px), currentColor 0;
+                background:
+                  linear-gradient(45deg, var(--g)),
+                  linear-gradient(-45deg, var(--g));
+                animation: courseLoaderSpin 1.5s infinite cubic-bezier(0.3, 1, 0, 1);
+              }
+              @keyframes courseLoaderSpin {
+                33% { inset: -10px; transform: rotate(0deg); }
+                66% { inset: -10px; transform: rotate(90deg); }
+                100% { inset: 0; transform: rotate(90deg); }
+              }
+            `
+          }} />
 
           {/* Status indicators */}
           {viewerReady && (
