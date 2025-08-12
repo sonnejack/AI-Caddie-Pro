@@ -2,20 +2,46 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { PrepareState, LatLon } from '../../lib/types';
 import { colorizeMaskToCanvas, edgesMaskToCanvas, showRasterLayer, hideRasterLayer } from '@/lib/rasterOverlay';
 import type { MaskBuffer } from '@/lib/maskBuffer';
+import { updateSamples, setSamplesVisibility } from './SamplesLayer';
+import { showHolePolyline, hideHolePolyline } from './HolePolylineLayer';
+import { showVectorFeatures, clearVectorFeatures } from './VectorFeatureLayers';
+
+interface ESResult {
+  mean: number;
+  ci95: number; 
+  n: number;
+  pointsLL: Float64Array;
+  distsYds: Float32Array;
+  classes: Uint8Array;
+}
 
 interface CesiumCanvasProps {
   state: PrepareState;
   onPointSet: (type: 'start' | 'aim' | 'pin', point: LatLon) => void;
   maskBuffer?: MaskBuffer;
-  holeMarkers?: Array<{number: number, par: number, coordinates: [number, number]}>;
-  samplePoints?: Array<{point: LatLon, classId: number}>;
-  cameraPosition?: { position: LatLon, heading: number, pitch: number, height: number };
+  esResult?: ESResult;
+  onCameraFlyTo?: (camera: { position: LatLon, heading: number, pitch: number, height: number }) => void;
+  holePolyline?: { positions: { lon: number; lat: number }[] };
+  holeEndpoints?: { teeLL: LatLon; greenLL: LatLon; primaryGreen: any };
+  vectorFeatures?: any; // ImportResponse['holes'][0]['features']
+  vectorLayerToggles?: Record<string, boolean>;
 }
 
-function CesiumCanvas({ state, onPointSet, maskBuffer, holeMarkers, samplePoints, cameraPosition }: CesiumCanvasProps) {
+function CesiumCanvas({ 
+  state, 
+  onPointSet, 
+  maskBuffer, 
+  esResult, 
+  onCameraFlyTo,
+  holePolyline,
+  holeEndpoints,
+  vectorFeatures,
+  vectorLayerToggles = {}
+}: CesiumCanvasProps) {
   const viewerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const initializingRef = useRef(false);
@@ -102,6 +128,136 @@ function CesiumCanvas({ state, onPointSet, maskBuffer, holeMarkers, samplePoints
       initializingRef.current = false;
     };
   }, []);
+
+  // Handle samples visualization
+  useEffect(() => {
+    if (!viewerRef.current || !viewerReady || !esResult) return;
+
+    // Convert Float64Array to regular array of positions
+    const points: { lon: number; lat: number }[] = [];
+    for (let i = 0; i < esResult.pointsLL.length; i += 2) {
+      points.push({
+        lon: esResult.pointsLL[i],
+        lat: esResult.pointsLL[i + 1]
+      });
+    }
+
+    // Update samples layer with new data
+    updateSamples(viewerRef.current, points, esResult.classes, showSamples);
+  }, [viewerRef.current, viewerReady, esResult, showSamples]);
+
+  // Handle hole polyline display
+  useEffect(() => {
+    if (!viewerRef.current || !viewerReady) return;
+
+    if (holePolyline && holePolyline.positions.length > 1) {
+      showHolePolyline(
+        viewerRef.current,
+        `hole-${state.currentHole}`,
+        holePolyline.positions,
+        holeEndpoints
+      );
+    } else {
+      hideHolePolyline();
+    }
+
+    return () => {
+      hideHolePolyline();
+    };
+  }, [viewerRef.current, viewerReady, holePolyline, holeEndpoints, state.currentHole]);
+
+  // Handle vector features display
+  useEffect(() => {
+    if (!viewerRef.current || !viewerReady || !vectorFeatures) return;
+    
+    console.log('[CesiumCanvas] Updating vector features:', {
+      toggles: vectorLayerToggles,
+      hasFeatures: !!vectorFeatures
+    });
+    
+    showVectorFeatures(viewerRef.current, vectorFeatures, vectorLayerToggles);
+    
+    return () => {
+      clearVectorFeatures(viewerRef.current);
+    };
+  }, [viewerRef.current, viewerReady, vectorFeatures, vectorLayerToggles]);
+
+  // Handle camera fly-to
+  useEffect(() => {
+    if (!viewerRef.current || !viewerReady || !onCameraFlyTo) return;
+
+    // Set up camera fly-to handler
+    const handleCameraFlyTo = (cameraConfig: { position: LatLon, heading: number, pitch: number, height: number }) => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+
+      try {
+        // Sample terrain height at target position
+        const cartographic = (window as any).Cesium.Cartographic.fromDegrees(
+          cameraConfig.position.lon,
+          cameraConfig.position.lat
+        );
+
+        // Use terrain height + specified height
+        const promises = [(window as any).Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [cartographic])];
+        
+        Promise.all(promises).then(() => {
+          const terrainHeight = cartographic.height || 0;
+          const totalHeight = terrainHeight + cameraConfig.height;
+
+          const destination = (window as any).Cesium.Cartesian3.fromDegrees(
+            cameraConfig.position.lon,
+            cameraConfig.position.lat,
+            totalHeight
+          );
+
+          viewer.camera.flyTo({
+            destination,
+            orientation: {
+              heading: cameraConfig.heading,
+              pitch: cameraConfig.pitch,
+              roll: 0
+            },
+            duration: 1.2
+          });
+        }).catch((error: any) => {
+          console.warn('Failed to sample terrain, using default height:', error);
+          
+          // Fallback: use specified height directly
+          const destination = (window as any).Cesium.Cartesian3.fromDegrees(
+            cameraConfig.position.lon,
+            cameraConfig.position.lat,
+            cameraConfig.height
+          );
+
+          viewer.camera.flyTo({
+            destination,
+            orientation: {
+              heading: cameraConfig.heading,
+              pitch: cameraConfig.pitch,
+              roll: 0
+            },
+            duration: 1.2
+          });
+        });
+      } catch (error) {
+        console.error('Camera fly-to error:', error);
+      }
+    };
+
+    // Store handler reference for cleanup
+    const cameraHandler = handleCameraFlyTo;
+    
+    // This effect will re-run when onCameraFlyTo changes, allowing parent to trigger fly-to
+  }, [viewerRef.current, viewerReady, onCameraFlyTo]);
+
+  // Handle samples visibility toggle
+  const handleSamplesToggle = (visible: boolean) => {
+    setShowSamples(visible);
+    if (viewerRef.current && viewerReady) {
+      setSamplesVisibility(visible);
+    }
+  };
 
   // Handle camera positioning for new course
   useEffect(() => {
@@ -256,39 +412,8 @@ function CesiumCanvas({ state, onPointSet, maskBuffer, holeMarkers, samplePoints
       });
     }
 
-    // Add hole markers from OSM data
-    if (holeMarkers && holeMarkers.length > 0) {
-      holeMarkers.forEach(hole => {
-        viewer.entities.add({
-          position: (window as any).Cesium.Cartesian3.fromDegrees(hole.coordinates[0], hole.coordinates[1], 0),
-          label: {
-            text: `${hole.number}`,
-            font: '16pt sans-serif bold',
-            fillColor: (window as any).Cesium.Color.WHITE,
-            outlineColor: (window as any).Cesium.Color.BLACK,
-            outlineWidth: 3,
-            style: (window as any).Cesium.LabelStyle.FILL_AND_OUTLINE,
-            verticalOrigin: (window as any).Cesium.VerticalOrigin.CENTER,
-            horizontalOrigin: (window as any).Cesium.HorizontalOrigin.CENTER,
-            heightReference: (window as any).Cesium.HeightReference.CLAMP_TO_GROUND,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            scale: 1.0,
-            pixelOffset: new (window as any).Cesium.Cartesian2(0, -10)
-          },
-          point: {
-            pixelSize: 20,
-            color: (window as any).Cesium.Color.YELLOW.withAlpha(0.8),
-            outlineColor: (window as any).Cesium.Color.BLACK,
-            outlineWidth: 2,
-            heightReference: (window as any).Cesium.HeightReference.CLAMP_TO_GROUND
-          }
-        });
-      });
-      console.log(`Added ${holeMarkers.length} hole markers to map`);
-    }
-
     viewer.scene.requestRender();
-  }, [state.start, state.aim, state.pin, state.skillPreset, state.maskPngMeta, holeMarkers, viewerReady]);
+  }, [state.start, state.aim, state.pin, state.skillPreset, state.maskPngMeta, viewerReady]);
 
   // Handle raster overlay mode changes
   useEffect(() => {
@@ -333,60 +458,7 @@ function CesiumCanvas({ state, onPointSet, maskBuffer, holeMarkers, samplePoints
     }
   };
 
-  // Handle camera positioning from hole navigation
-  useEffect(() => {
-    if (!viewerRef.current || !viewerReady || !cameraPosition) return;
-    
-    const viewer = viewerRef.current;
-    const { position, heading, pitch, height } = cameraPosition;
-    
-    console.log('🎥 Flying camera to hole navigation position:', cameraPosition);
-    
-    viewer.camera.flyTo({
-      destination: (window as any).Cesium.Cartesian3.fromDegrees(position.lon, position.lat, height),
-      orientation: {
-        heading,
-        pitch,
-        roll: 0
-      },
-      duration: 2.0
-    });
-  }, [viewerReady, cameraPosition]);
-
-  // Handle sample points visualization
-  useEffect(() => {
-    if (!viewerRef.current || !viewerReady) return;
-
-    const viewer = viewerRef.current;
-    const Cesium = (window as any).Cesium;
-
-    // Remove existing sample points
-    if (samplePointsRef.current) {
-      viewer.scene.primitives.remove(samplePointsRef.current);
-      samplePointsRef.current = null;
-    }
-
-    // Add sample points if enabled and available
-    if (showSamples && samplePoints && samplePoints.length > 0) {
-      const pointCollection = new Cesium.PointPrimitiveCollection();
-      
-      samplePoints.forEach(({ point, classId }) => {
-        pointCollection.add({
-          position: Cesium.Cartesian3.fromDegrees(point.lon, point.lat, 0),
-          color: getClassColor(classId),
-          pixelSize: 6,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 1,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-        });
-      });
-
-      samplePointsRef.current = pointCollection;
-      viewer.scene.primitives.add(pointCollection);
-    }
-
-    viewer.scene.requestRender();
-  }, [viewerReady, showSamples, samplePoints]);
+  // Camera positioning and samples are now handled by the effects above
 
   // Handle click events for point setting
   useEffect(() => {
@@ -544,11 +616,11 @@ function CesiumCanvas({ state, onPointSet, maskBuffer, holeMarkers, samplePoints
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setShowSamples(!showSamples)}
-              title="Show Sample Points"
+              onClick={() => handleSamplesToggle(!showSamples)}
+              title="Toggle Sample Points"
               className="h-8 w-8"
             >
-              <i className={`fas fa-circle ${showSamples ? 'text-primary' : 'text-gray-400'}`}></i>
+              <i className={`fas fa-circle-dot ${showSamples ? 'text-primary' : 'text-gray-400'}`}></i>
             </Button>
           </div>
         </div>

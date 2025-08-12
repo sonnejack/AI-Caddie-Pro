@@ -101,32 +101,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log("=== Import request received ===");
       console.log("Request body:", JSON.stringify(req.body, null, 2));
-      
-      const { seeds } = z.object({
-        seeds: z.array(z.string())
-      }).parse(req.body);
 
-      console.log("Parsed seeds:", seeds);
-      console.log("About to call overpassAPI.importCourse...");
+      const { seeds } = z.object({ seeds: z.array(z.string()).min(1) }).parse(req.body);
 
-      const { overpassAPI } = await import("@shared/overpass");
-      console.log("overpassAPI imported successfully");
-      
-      const result = await overpassAPI.importCourse(seeds);
-      console.log("Import completed successfully");
-      
+      // Import whichever export exists
+      const mod = await import("@shared/overpass");
+      const importer = (mod as any).overpassImporter ?? (mod as any).overpassAPI;
+      if (!importer?.importCourse) throw new Error("Overpass importer not found");
+
+      const result = await importer.importCourse(seeds);
       res.json(result);
-    } catch (error) {
-      console.error("=== OSM import error ===");
-      console.error("Error type:", typeof error);
-      console.error("Error message:", error instanceof Error ? error.message : error);
-      console.error("Error stack:", error instanceof Error ? error.stack : "No stack");
-      
-      res.status(500).json({ 
-        message: "Failed to import course from OSM",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
+    } catch (error: any) {
+      console.error("=== OSM import error ===", error);
+      const code = error?.code || "IMPORT_FAILED";
+      const message = error?.message || "Failed to import course from OSM";
+      const debug = error?.debug || { stack: error?.stack };
+      res.status(code === "NO_HOLE_WAYS" ? 404 : 500).json({ code, message, debug });
     }
+  });
+
+  // Compat alias so the client can call /api/import-osm
+  app.post("/api/import-osm", (req, res, next) => {
+    (req as any).url = "/api/courses/import-osm";
+    (app as any)._router.handle(req, res, next);
   });
 
   // Placeholder routes for future Supabase Edge functions

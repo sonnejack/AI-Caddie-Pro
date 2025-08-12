@@ -1,13 +1,9 @@
-import osmtogeojson from 'osmtogeojson';
+// Robust osmtogeojson import for both CJS/ESM
+import * as osmtogeojsonNS from "osmtogeojson";
+const osmtogeojson: any = (osmtogeojsonNS as any).default ?? osmtogeojsonNS;
 
 export interface OverpassQuery {
   seeds: string[];
-  bbox?: {
-    south: number;
-    west: number;
-    north: number;
-    east: number;
-  };
 }
 
 export interface OverpassElement {
@@ -33,91 +29,120 @@ export interface ImportResponse {
     bbox: { west: number; south: number; east: number; north: number } 
   };
   holes: Array<{
-    number: number;
-    bbox: { west: number; south: number; east: number; north: number };
-    features: {
-      tees: GeoJSON.FeatureCollection;
-      greens: GeoJSON.FeatureCollection;
-      fairways: GeoJSON.FeatureCollection;
-      bunkers: GeoJSON.FeatureCollection;
-      water: GeoJSON.FeatureCollection;
-      hazards: GeoJSON.FeatureCollection;
-      ob: GeoJSON.FeatureCollection;
-      recovery: GeoJSON.FeatureCollection;
-      rough: GeoJSON.FeatureCollection;
-    };
+    ref: string;                 // hole number (from way.tags.ref)
+    polyline: { positions: {lon: number; lat: number}[]; par?: number; dist?: number };
   }>;
-  holeMarkers: Array<{
-    number: number;
-    par: number;
-    coordinates: [number, number]; // [longitude, latitude]
-  }>;
+  features: {
+    greens: GeoJSON.FeatureCollection;   // polygons only
+    fairways: GeoJSON.FeatureCollection; // polygons only
+    bunkers: GeoJSON.FeatureCollection;  // polygons only (merge golf=bunker + surface=sand polygons)
+    water: GeoJSON.FeatureCollection;    // polygons only (natural=water + golf water hazards)
+    tees: GeoJSON.FeatureCollection;     // nodes or polygons (keep both)
+  };
 }
 
-export class OverpassAPI {
-  private baseUrl = 'https://overpass-api.de/api/interpreter';
-
-  async fetchCourseData(query: OverpassQuery): Promise<OverpassResponse> {
-    let overpassQuery = this.buildQuery(query);
+export class OverpassImporter {
+  async importCourse(seeds: string[]): Promise<ImportResponse> {
+    console.log(`[Import] Starting import for seeds: ${seeds}`);
     
-    try {
-      console.log('Initial Overpass Query:', overpassQuery);
-      
-      let response = await fetch(this.baseUrl, {
-        method: 'POST',
-        body: `data=${encodeURIComponent(overpassQuery)}`,
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-      });
-
-      if (!response.ok) {
-        console.error('Primary query failed, trying fallback...');
-        console.error('Primary query status:', response.status, response.statusText);
-        
-        // Log the error details from the primary query
-        let errorText = '';
-        try {
-          errorText = await response.text();
-          console.error('Primary query error details:', errorText);
-        } catch (e) {
-          console.error('Could not read error response');
-        }
-        
-        // Fallback: Query the relation/way directly and search around it
-        overpassQuery = this.buildFallbackQuery(query.seeds[0]);
-        console.log('Fallback Overpass Query:', overpassQuery);
-        
-        response = await fetch("https://overpass.kumi.systems/api/interpreter", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-          body: "data=" + encodeURIComponent(overpassQuery)
-        });
-        
-        if (!response.ok) {
-          console.error('Fallback query also failed!');
-          console.error('Overpass API Error Response:', response.status, response.statusText);
-          const fallbackErrorText = await response.text();
-          console.error('Fallback Error Details:', fallbackErrorText);
-          throw new Error(`Failed to fetch OSM data: ${response.statusText}. Primary error: ${errorText}. Fallback error: ${fallbackErrorText}`);
-        }
+    // Parse the course ID
+    const courseId = seeds[0];
+    const osmData = await this.fetchOSMData(courseId);
+    
+    // Convert to GeoJSON with flat properties
+    const geoJson = await this.convertToGeoJSON(osmData);
+    console.log(`[Import] Converted to GeoJSON: ${geoJson.features.length} features`);
+    
+    // Process features
+    const { holes, features } = this.processFeatures(geoJson);
+    
+    // Compute course bbox
+    const bbox = this.computeBbox(geoJson);
+    
+    // Validate we have holes
+    if (holes.length === 0) {
+      const counts: Record<string,number> = {};
+      for (const f of geoJson.features) { 
+        const g = (f.properties as any)?.golf; 
+        if (g) counts[g] = (counts[g]||0)+1; 
       }
-
-      const data = await response.json();
-      console.log(`Query successful: found ${data.elements ? data.elements.length : 0} elements`);
-      return data;
-      
-    } catch (error) {
-      console.error('Overpass API error:', error);
-      throw error;
+      throw { 
+        code:"NO_HOLE_WAYS", 
+        message:"No golf=hole centerlines found near seed", 
+        debug:{ counts } 
+      };
     }
+
+    const pc = {
+      greens: features.greens.features.length,
+      fairways: features.fairways.features.length,
+      bunkers: features.bunkers.features.length,
+      water: features.water.features.length,
+      tees_nodes: features.tees.features.filter(f=>f.geometry?.type==="Point").length,
+      tees_polys: features.tees.features.filter(f=>f.geometry?.type==="Polygon"||f.geometry?.type==="MultiPolygon").length
+    };
+    
+    console.log(`[Import] holes: ${holes.length}, refs: [${holes.map(h=>h.ref).join(",")}]`);
+    console.log(`[Import] polygons: greens=${pc.greens} fairways=${pc.fairways} bunkers=${pc.bunkers} water=${pc.water} tees(nodes)=${pc.tees_nodes} tees(polys)=${pc.tees_polys}`);
+
+    return {
+      course: { 
+        id: courseId, 
+        name: `Course ${courseId}`, 
+        bbox: this.expandBbox(bbox, 0.01) 
+      },
+      holes,
+      features
+    };
   }
 
-  private buildFallbackQuery(seedId: string): string {
-    // Convert area ID back to relation/way ID
-    let osmId, osmType;
-    const areaId = parseInt(seedId);
+  /**
+   * Fetch OSM data using proper area/fallback queries
+   */
+  async fetchOSMData(courseId: string): Promise<OverpassResponse> {
+    console.log('Course ID being used:', courseId);
     
+    // Try area query first
+    let query = `[out:json][timeout:60];
+      area(id:${courseId})->.a;
+      (
+        nwr["golf"](area.a);
+        nwr["surface"="sand"](area.a);
+        nwr["natural"="water"](area.a);
+        nwr["waterway"](area.a);
+        nwr["highway"="path"](area.a);
+      );
+      (._;>;);
+      out geom;`;
+      
+    console.log('Trying area query first...');
+    console.log('Overpass Query:', query);
+      
+    let response = await fetch("https://overpass.kumi.systems/api/interpreter", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "User-Agent": "AI-Caddie/1.0"
+      },
+      body: "data=" + encodeURIComponent(query)
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.elements && data.elements.length > 0) {
+        console.log(`Area query successful: found ${data.elements.length} elements`);
+        return data;
+      } else {
+        console.log('Area query returned no elements, trying direct relation/way query...');
+      }
+    } else {
+      console.log('Area query failed, trying direct relation/way query...');
+    }
+    
+    // Fallback: Query the relation/way directly and search around it
+    // Convert area ID back to relation/way ID
+    let osmId: number, osmType: string;
+    const areaId = parseInt(courseId);
     if (areaId >= 3600000000) {
       osmId = areaId - 3600000000;
       osmType = 'relation';
@@ -125,14 +150,12 @@ export class OverpassAPI {
       osmId = areaId - 2400000000;
       osmType = 'way';
     } else {
-      // Direct ID, try as way first (since many golf courses are ways)
-      osmId = areaId;
-      osmType = 'way';
+      throw new Error(`Invalid area ID format: ${courseId}`);
     }
     
     console.log(`Fallback: Querying ${osmType} ${osmId} directly...`);
     
-    return `[out:json][timeout:60];
+    query = `[out:json][timeout:60];
       ${osmType}(${osmId});
       out geom;
       (
@@ -144,236 +167,208 @@ export class OverpassAPI {
       );
       (._;>;);
       out geom;`;
+      
+    console.log('Fallback Overpass Query:', query);
+      
+    response = await fetch("https://overpass.kumi.systems/api/interpreter", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "User-Agent": "AI-Caddie/1.0"
+      },
+      body: "data=" + encodeURIComponent(query)
+    });
+    
+    if (!response.ok) {
+      console.error('Overpass API Error Response:', response.status, response.statusText);
+      
+      // Try to get the error details from the response
+      try {
+        const errorText = await response.text();
+        console.error('Overpass Error Details:', errorText);
+        throw new Error(`Failed to fetch OSM data: ${response.statusText}. Details: ${errorText}`);
+      } catch (textError) {
+        throw new Error(`Failed to fetch OSM data: ${response.statusText}`);
+      }
+    }
+    
+    const data = await response.json();
+    console.log(`Fallback query successful: found ${data.elements ? data.elements.length : 0} elements`);
+    return data;
   }
 
-  async importCourse(seeds: string[]): Promise<ImportResponse> {
-    const overpassData = await this.fetchCourseData({ seeds });
-    const geoJson = osmtogeojson(overpassData);
-    
-    // Compute bbox from all geometries
-    const bbox = this.computeBbox(geoJson);
-    
-    // Extract features by type and hole markers
-    const { features, holeMarkers } = this.categorizeFeatures(geoJson);
-    
-    // Generate course name from first seed
-    const courseName = `Course ${seeds[0]}`;
-    
+  /**
+   * Convert OSM to GeoJSON
+   */
+  async convertToGeoJSON(osmJson: OverpassResponse): Promise<GeoJSON.FeatureCollection> {
+    return osmtogeojson(osmJson, { flatProperties: true }) as GeoJSON.FeatureCollection;
+  }
+
+  /**
+   * Process GeoJSON features into holes and feature collections
+   */
+  processFeatures(geoJson: GeoJSON.FeatureCollection): {
+    holes: ImportResponse['holes'];
+    features: ImportResponse['features'];
+  } {
+    const holes: ImportResponse['holes'] = [];
+    const greens: GeoJSON.Feature[] = [];
+    const fairways: GeoJSON.Feature[] = [];
+    const bunkers: GeoJSON.Feature[] = [];
+    const water: GeoJSON.Feature[] = [];
+    const tees: GeoJSON.Feature[] = [];
+
+    console.log(`[Import] Processing ${geoJson.features.length} features`);
+
+    for (const feature of geoJson.features) {
+      const properties = feature.properties || {};
+      const geometry = feature.geometry;
+      
+      if (!geometry) continue;
+
+      console.log(`[Import] Processing feature: golf=${properties.golf}, surface=${properties.surface}, natural=${properties.natural}, waterway=${properties.waterway}, highway=${properties.highway}`);
+
+      // Extract hole polylines (golf=hole ways)
+      if (properties.golf === 'hole' && this.isLineGeometry(geometry)) {
+        const ref = (properties.ref || properties.name || "").toString().trim();
+        if (ref) {
+          const positions = this.extractLineCoordinates(geometry as GeoJSON.LineString | GeoJSON.MultiLineString).map(([lon, lat]) => ({lon, lat}));
+          if (positions.length >= 2) {
+            holes.push({
+              ref,
+              polyline: {
+                positions,
+                par: properties.par ? parseInt(properties.par) : undefined,
+                dist: properties.distance || properties.dist
+              }
+            });
+            console.log(`[Import] Found hole way: ref=${ref}, positions=${positions.length}`);
+          }
+        }
+        continue;
+      }
+
+      // Process polygon features for mask painting
+      if (this.isPolygonGeometry(geometry)) {
+        if (properties.golf === 'green') {
+          greens.push(feature);
+          console.log('[Import] Added green polygon');
+        } else if (properties.golf === 'fairway') {
+          fairways.push(feature);
+          console.log('[Import] Added fairway polygon');
+        } else if (properties.golf === 'bunker' || properties.surface === 'sand') {
+          bunkers.push(feature);
+          console.log('[Import] Added bunker polygon');
+        } else if (properties.natural === 'water' || 
+                   properties.golf === 'water_hazard' || 
+                   properties.golf === 'lateral_water_hazard' ||
+                   properties.waterway) {
+          water.push(feature);
+          console.log('[Import] Added water polygon');
+        }
+      }
+
+      // Process tee features (nodes or polygons)
+      if (properties.golf === 'tee' && (this.isPointGeometry(geometry) || this.isPolygonGeometry(geometry))) {
+        tees.push(feature);
+        console.log('[Import] Added tee feature');
+      }
+    }
+
     return {
-      course: {
-        id: seeds[0],
-        name: courseName,
-        bbox
-      },
-      holes: [{
-        number: 1,
-        bbox,
-        features
-      }],
-      holeMarkers
+      holes,
+      features: {
+        greens: { type: 'FeatureCollection', features: greens },
+        fairways: { type: 'FeatureCollection', features: fairways },
+        bunkers: { type: 'FeatureCollection', features: bunkers },
+        water: { type: 'FeatureCollection', features: water },
+        tees: { type: 'FeatureCollection', features: tees }
+      }
     };
   }
 
-  private buildQuery(query: OverpassQuery): string {
-    // Use the simpler fallback approach as the primary query
-    // since the complex area-based query is having syntax issues
-    return this.buildFallbackQuery(query.seeds[0]);
+  private isPolygonGeometry(geometry: GeoJSON.Geometry): boolean {
+    return geometry.type === "Polygon" || geometry.type === "MultiPolygon";
   }
 
-  private computeBbox(geoJson: any): { west: number; south: number; east: number; north: number } {
+  private isPointGeometry(geometry: GeoJSON.Geometry): boolean {
+    return geometry.type === "Point" || geometry.type === "MultiPoint";
+  }
+
+  private isLineGeometry(geometry: GeoJSON.Geometry): boolean {
+    return geometry.type === "LineString" || geometry.type === "MultiLineString";
+  }
+
+  private extractLineCoordinates(geometry: GeoJSON.LineString | GeoJSON.MultiLineString): [number, number][] {
+    if (geometry.type === "LineString") {
+      return geometry.coordinates as [number, number][];
+    }
+    
+    // For MultiLineString, find the longest line
+    let longest: [number, number][] = [];
+    let maxLength = 0;
+    
+    for (const line of geometry.coordinates) {
+      let length = 0;
+      for (let i = 1; i < line.length; i++) {
+        const [x1, y1] = line[i-1];
+        const [x2, y2] = line[i];
+        length += Math.hypot(x2-x1, y2-y1);
+      }
+      if (length > maxLength) {
+        maxLength = length;
+        longest = line as [number, number][];
+      }
+    }
+    
+    return longest;
+  }
+
+  private computeBbox(geoJson: GeoJSON.FeatureCollection): { west: number; south: number; east: number; north: number } {
     let west = Infinity, south = Infinity, east = -Infinity, north = -Infinity;
     
-    const processCoordinates = (coords: any[]) => {
+    const processCoordinates = (coords: any[]): void => {
       if (Array.isArray(coords[0])) {
         coords.forEach(coord => processCoordinates(coord));
       } else {
-        const [lon, lat] = coords;
-        west = Math.min(west, lon);
-        east = Math.max(east, lon);
-        south = Math.min(south, lat);
-        north = Math.max(north, lat);
+        const [lon, lat] = coords as [number, number];
+        if (Number.isFinite(lon) && Number.isFinite(lat)) {
+          west = Math.min(west, lon);
+          east = Math.max(east, lon);
+          south = Math.min(south, lat);
+          north = Math.max(north, lat);
+        }
       }
     };
 
-    geoJson.features.forEach((feature: any) => {
-      if (feature.geometry?.coordinates) {
-        processCoordinates(feature.geometry.coordinates);
+    for (const feature of geoJson.features) {
+      const geom = feature.geometry;
+      if (geom && 'coordinates' in geom && geom.coordinates) {
+        processCoordinates(geom.coordinates);
       }
-    });
+    }
+
+    // Fallback bbox if no valid coordinates found
+    if (!Number.isFinite(west)) {
+      return { west: -1, south: -1, east: 1, north: 1 };
+    }
 
     return { west, south, east, north };
   }
 
-  private categorizeFeatures(geoJson: any): { features: ImportResponse['holes'][0]['features'], holeMarkers: ImportResponse['holeMarkers'] } {
-    const categories = {
-      tees: [] as any[],
-      greens: [] as any[],
-      fairways: [] as any[],
-      bunkers: [] as any[],
-      water: [] as any[],
-      hazards: [] as any[],
-      ob: [] as any[],
-      recovery: [] as any[],
-      rough: [] as any[]
-    };
-
-    const holeMarkers: ImportResponse['holeMarkers'] = [];
-
-    geoJson.features.forEach((feature: any) => {
-      const props = feature.properties || {};
-      
-      // Extract hole markers FIRST - before other golf categorization
-      if (props.golf === 'hole' && props.ref) {
-        // Extract hole markers with numbers and par
-        const holeNumber = parseInt(props.ref);
-        const par = props.par ? parseInt(props.par) : 4; // default to par 4
-        
-        // Get center coordinates of the hole feature
-        let coords: [number, number] = [0, 0];
-        if (feature.geometry?.coordinates) {
-          if (feature.geometry.type === 'Point') {
-            coords = feature.geometry.coordinates;
-          } else if (feature.geometry.type === 'Polygon') {
-            // Calculate centroid of polygon
-            const polygon = feature.geometry.coordinates[0];
-            let sumLon = 0, sumLat = 0;
-            polygon.forEach((coord: [number, number]) => {
-              sumLon += coord[0];
-              sumLat += coord[1];
-            });
-            coords = [sumLon / polygon.length, sumLat / polygon.length];
-          } else if (feature.geometry.type === 'LineString') {
-            // For LineString, take the middle point
-            const lineCoords = feature.geometry.coordinates;
-            const midIndex = Math.floor(lineCoords.length / 2);
-            coords = lineCoords[midIndex];
-          } else if (feature.geometry.type === 'MultiPolygon') {
-            // For MultiPolygon, use the first polygon's centroid
-            const firstPolygon = feature.geometry.coordinates[0][0];
-            let sumLon = 0, sumLat = 0;
-            firstPolygon.forEach((coord: [number, number]) => {
-              sumLon += coord[0];
-              sumLat += coord[1];
-            });
-            coords = [sumLon / firstPolygon.length, sumLat / firstPolygon.length];
-          }
-        }
-        
-        holeMarkers.push({
-          number: holeNumber,
-          par,
-          coordinates: coords
-        });
-        console.log(`Extracted hole marker: ${holeNumber} (par ${par}) at [${coords[0].toFixed(6)}, ${coords[1].toFixed(6)}]`);
-        
-        // Still add to rough category for mask painting
-        categories.rough.push(feature);
-      
-      // Bunkers - check for sand surfaces first
-      } else if (props.surface === "sand" || props.natural === "sand" || props.golf === "bunker") {
-        categories.bunkers.push(feature);
-        console.log('Categorized bunker:', props);
-        
-      // Greens
-      } else if (props.golf === "green") {
-        categories.greens.push(feature);
-        console.log('Categorized green:', props);
-        
-      // Fairways 
-      } else if (props.golf === "fairway") {
-        categories.fairways.push(feature);
-        console.log('Categorized fairway:', props);
-        
-      // Tees
-      } else if (props.golf === "tee") {
-        categories.tees.push(feature);
-        console.log('Categorized tee:', props);
-        
-      // Water hazards - comprehensive water detection
-      } else if (props.natural === "water" || 
-                 props.leisure === "water" || 
-                 props.waterway || 
-                 props.water ||
-                 props.golf === "water_hazard") {
-        categories.water.push(feature);
-        console.log('Categorized water:', props);
-        
-      // Rough
-      } else if (props.golf === "rough") {
-        categories.rough.push(feature);
-        console.log('Categorized rough:', props);
-        
-      // Other hazards
-      } else if (props.hazard || props.golf === "lateral_water_hazard") {
-        categories.hazards.push(feature);
-        console.log('Categorized hazard:', props);
-        
-      // Cart paths as recovery areas
-      } else if (props.golf === "cartpath" || 
-                 (props.highway === "path" && props.golf)) {
-        categories.recovery.push(feature);
-        console.log('Categorized cart path as recovery:', props);
-        
-      // Trees/forest as recovery
-      } else if (props.natural === "wood" || 
-                 props.natural === "tree" || 
-                 props.landuse === "forest") {
-        categories.recovery.push(feature);
-        console.log('Categorized trees/forest as recovery:', props);
-        
-      } else if (props.golf) {
-        // Any other golf-tagged feature gets put in rough as default
-        categories.rough.push(feature);
-        console.log('Categorized unknown golf feature as rough:', props);
-      }
-    });
-
-    console.log('Feature categorization summary:', {
-      tees: categories.tees.length,
-      greens: categories.greens.length,
-      fairways: categories.fairways.length,
-      bunkers: categories.bunkers.length,
-      water: categories.water.length,
-      hazards: categories.hazards.length,
-      recovery: categories.recovery.length,
-      rough: categories.rough.length
-    });
-
-    // If hole markers have no coordinates, distribute them evenly across the bbox
-    if (holeMarkers.length > 0 && holeMarkers.every(h => h.coordinates[0] === 0 && h.coordinates[1] === 0)) {
-      const bbox = this.computeBbox(geoJson);
-      holeMarkers.forEach((marker, index) => {
-        // Arrange holes in a rough grid pattern across the course
-        const cols = Math.ceil(Math.sqrt(holeMarkers.length));
-        const rows = Math.ceil(holeMarkers.length / cols);
-        const col = index % cols;
-        const row = Math.floor(index / cols);
-        
-        const lon = bbox.west + (col + 0.5) * (bbox.east - bbox.west) / cols;
-        const lat = bbox.south + (row + 0.5) * (bbox.north - bbox.south) / rows;
-        
-        marker.coordinates = [lon, lat];
-      });
-      console.log(`Distributed ${holeMarkers.length} hole markers across course bbox`);
-    }
-
-    console.log(`Extracted ${holeMarkers.length} hole markers`);
-
+  private expandBbox(bbox: { west: number; south: number; east: number; north: number }, margin: number) {
+    const latMargin = (bbox.north - bbox.south) * margin;
+    const lonMargin = (bbox.east - bbox.west) * margin;
+    
     return {
-      features: {
-        tees: { type: 'FeatureCollection', features: categories.tees },
-        greens: { type: 'FeatureCollection', features: categories.greens },
-        fairways: { type: 'FeatureCollection', features: categories.fairways },
-        bunkers: { type: 'FeatureCollection', features: categories.bunkers },
-        water: { type: 'FeatureCollection', features: categories.water },
-        hazards: { type: 'FeatureCollection', features: categories.hazards },
-        ob: { type: 'FeatureCollection', features: categories.ob },
-        recovery: { type: 'FeatureCollection', features: categories.recovery },
-        rough: { type: 'FeatureCollection', features: categories.rough }
-      },
-      holeMarkers
+      west: bbox.west - lonMargin,
+      south: bbox.south - latMargin,
+      east: bbox.east + lonMargin,
+      north: bbox.north + latMargin
     };
   }
 }
 
-export const overpassAPI = new OverpassAPI();
+export const overpassImporter = new OverpassImporter();
+// Alias for existing server import
+export const overpassAPI = overpassImporter;

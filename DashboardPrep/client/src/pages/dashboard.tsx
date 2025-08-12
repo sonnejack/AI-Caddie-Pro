@@ -10,6 +10,7 @@ import DispersionInspector from '../components/prepare/DispersionInspector';
 import OptimizerPanel from '../components/prepare/OptimizerPanel';
 import ShotMetrics from '../components/prepare/ShotMetrics';
 import MetricsBar from '../components/prepare/MetricsBar';
+import VectorLayerPanel from '../components/prepare/VectorLayerPanel';
 import StatsTab from '../components/placeholders/StatsTab';
 import TrendsTab from '../components/placeholders/TrendsTab';
 import DispersionTab from '../components/placeholders/DispersionTab';
@@ -24,8 +25,30 @@ export default function Dashboard() {
   const [currentHole, setCurrentHole] = useState(1);
   const [loadingCourse, setLoadingCourse] = useState(false);
   const [holeMarkers, setHoleMarkers] = useState<Array<{number: number, par: number, coordinates: [number, number]}>>([]);
-  const [esResult, setESResult] = useState<ESResult & { samplePoints?: Array<{point: LatLon, classId: number}>, avgProximity?: number, avgProximityInPlay?: number }>();
+  const [esResult, setESResult] = useState<{
+    mean: number;
+    ci95: number;
+    n: number;
+    pointsLL: Float64Array;
+    distsYds: Float32Array;
+    classes: Uint8Array;
+    samplePoints?: Array<{point: LatLon, classId: number}>;
+    avgProximity?: number;
+    avgProximityInPlay?: number;
+  }>();
   const [cameraPosition, setCameraPosition] = useState<{ position: LatLon, heading: number, pitch: number, height: number }>();
+  const [vectorFeatures, setVectorFeatures] = useState<any>(null);
+  const [holePolylines, setHolePolylines] = useState<any[]>([]);
+  const [holePolylinesByRef, setHolePolylinesByRef] = useState<Map<string, any>>(new Map());
+  const [vectorLayerToggles, setVectorLayerToggles] = useState<Record<string, boolean>>({
+    polylines: true,
+    greens: false,
+    fairways: false,
+    bunkers: false,
+    water: false,
+    hazards: false,
+    ob: false
+  });
   const {
     courseId, holeId, setCourseId, setHoleId,
     start, setStart, pin, setPin, aim, setAim,
@@ -94,6 +117,13 @@ export default function Dashboard() {
     setSkill(newSkill);
   };
 
+  const handleVectorLayerToggle = (layerType: string, enabled: boolean) => {
+    setVectorLayerToggles(prev => ({
+      ...prev,
+      [layerType]: enabled
+    }));
+  };
+
   const handleCourseSelect = async (course: { id: string; name: string; osm: { seeds: string[] } }) => {
     try {
       setLoadingCourse(true);
@@ -114,17 +144,36 @@ export default function Dashboard() {
 
       const importData: ImportResponse = await response.json();
       console.log('🎯 Course import successful:', importData.course);
+      console.log('🎯 Features structure:', Object.keys(importData.features || {}));
+      console.log('🎯 Features:', importData.features);
       
-      // Use the first hole for now
-      const firstHole = importData.holes[0];
-      
-      // Create client-side mask from features
+      // Create client-side mask from features (strict polygon-only)
       console.log('🎨 Creating client-side mask from features...');
-      const maskBuffer = createMaskFromFeatures(firstHole.features, firstHole.bbox);
+      const maskResult = createMaskFromFeatures(importData.features, importData.course.bbox);
       console.log('✅ Mask created:', { 
-        width: maskBuffer.width, 
-        height: maskBuffer.height,
-        bbox: maskBuffer.bbox 
+        width: maskResult.width, 
+        height: maskResult.height,
+        bbox: maskResult.bbox,
+        aspectPx: maskResult.aspectPx?.toFixed(4),
+        aspectDeg: maskResult.aspectDeg?.toFixed(4)
+      });
+      
+      // Create legacy maskBuffer for compatibility
+      const maskBuffer = {
+        width: maskResult.width,
+        height: maskResult.height,
+        bbox: maskResult.bbox,
+        data: maskResult.imageData.data
+      };
+      
+      // Build hole polylines map for navigation
+      const polylinesByRef = new Map();
+      importData.holes.forEach(hole => {
+        polylinesByRef.set(hole.ref, {
+          positions: hole.polyline.positions,
+          par: hole.polyline.par,
+          dist: hole.polyline.dist
+        });
       });
       
       // Update prepare state
@@ -133,7 +182,7 @@ export default function Dashboard() {
       setCurrentHole(1);
       
       // Set mask metadata (compatible with existing code)
-      setMask({
+      setMask(prev => ({
         url: '', // Not needed for client-side buffer
         width: maskBuffer.width,
         height: maskBuffer.height,
@@ -141,13 +190,28 @@ export default function Dashboard() {
         paletteVersion: 1,
         // Add course bbox for camera positioning
         courseBbox: importData.course.bbox
-      });
+      }));
       
       // Store mask buffer for sampling
       setMaskBuffer(maskBuffer);
       
-      // Store hole markers
-      setHoleMarkers(importData.holeMarkers || []);
+      // Store vector features for layer rendering
+      setVectorFeatures(importData.features);
+      
+      // Store hole polylines for navigation
+      setHolePolylines(importData.holes);
+      setHolePolylinesByRef(polylinesByRef);
+      
+      // Legacy hole markers for compatibility (generate from holes)
+      const holeMarkers = importData.holes.map((hole, index) => ({
+        number: parseInt(hole.ref) || (index + 1),
+        par: hole.polyline.par || 4,
+        coordinates: [
+          hole.polyline.positions[0]?.lon || 0,
+          hole.polyline.positions[0]?.lat || 0
+        ] as [number, number]
+      }));
+      setHoleMarkers(holeMarkers);
       
       // Reset points when switching courses
       setStart(undefined);
@@ -182,15 +246,17 @@ export default function Dashboard() {
         <HoleNavigator 
           currentHole={state.currentHole} 
           onHoleChange={changeHole}
+          holePolylinesByRef={holePolylinesByRef}
+          holeFeatures={vectorFeatures}
           onAutoNavigate={(points) => {
             if (points.start) setStart(points.start);
             if (points.aim) setAim(points.aim);
             if (points.pin) setPin(points.pin);
           }}
-          onCameraPosition={(camera) => {
-            setCameraPosition(camera);
-          }}
-          maskBuffer={maskBuffer}
+        />
+        <VectorLayerPanel 
+          onLayerToggle={handleVectorLayerToggle}
+          availableFeatures={vectorFeatures}
         />
         <ConditionDrawer />
       </div>
@@ -201,9 +267,9 @@ export default function Dashboard() {
           state={state}
           onPointSet={setPoint}
           maskBuffer={maskBuffer}
-          holeMarkers={holeMarkers}
-          samplePoints={esResult?.samplePoints}
-          cameraPosition={cameraPosition}
+          esResult={esResult}
+          vectorFeatures={vectorFeatures}
+          vectorLayerToggles={vectorLayerToggles}
         />
         <MetricsBar state={state} />
       </div>
@@ -225,7 +291,8 @@ export default function Dashboard() {
           maskBuffer={maskBuffer}
           onESResult={(result) => {
             setEs(result);
-            setESResult(result);
+            // Cast the result to include typed arrays for CesiumCanvas
+            setESResult(result as any);
           }}
         />
         <ShotMetrics 
