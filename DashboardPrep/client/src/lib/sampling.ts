@@ -19,7 +19,7 @@ export function halton2D(index: number, base1: number = 2, base2: number = 3): [
   return [halton(index, base1), halton(index, base2)];
 }
 
-// Map unit disk coordinates to ellipse with heading rotation
+// Map unit disk coordinates to ellipse with heading rotation (matching working code)
 export function mapUnitDiskToEllipse(
   u: number, 
   v: number, 
@@ -32,26 +32,24 @@ export function mapUnitDiskToEllipse(
   const r = Math.sqrt(u);
   const theta = 2 * Math.PI * v;
   
-  // Scale by ellipse axes
-  const x_local = semiMajor * r * Math.cos(theta);
-  const y_local = semiMinor * r * Math.sin(theta);
+  // Generate point in ellipse local coordinates
+  const x = semiMajor * r * Math.cos(theta);
+  const y = semiMinor * r * Math.sin(theta);
   
-  // Rotate by heading
-  const cos_heading = Math.cos(headingRad);
-  const sin_heading = Math.sin(headingRad);
+  // Apply rotation matrix (matching working implementation)
+  const cosR = Math.cos(headingRad);
+  const sinR = Math.sin(headingRad);
+  const xr = x * cosR - y * sinR;
+  const yr = x * sinR + y * cosR;
   
-  const x_rotated = x_local * cos_heading - y_local * sin_heading;
-  const y_rotated = x_local * sin_heading + y_local * cos_heading;
+  // Convert to lat/lon using proper meters per degree calculations
+  const metersPerDegLat = 111320; // meters per degree latitude (constant)
+  const metersPerDegLon = 111320 * Math.cos(centerLL.lat * Math.PI / 180); // varies by latitude
   
-  // Convert yards to lat/lon offsets
-  const metersPerYard = 0.9144;
-  const latOffset = (y_rotated * metersPerYard) / 111320;
-  const lonOffset = (x_rotated * metersPerYard) / (111320 * Math.cos(centerLL.lat * Math.PI / 180));
+  const lon = centerLL.lon + xr / metersPerDegLon;
+  const lat = centerLL.lat + yr / metersPerDegLat;
   
-  return {
-    lat: centerLL.lat + latOffset,
-    lon: centerLL.lon + lonOffset
-  };
+  return { lat, lon };
 }
 
 // Generate N samples using common Halton sequence

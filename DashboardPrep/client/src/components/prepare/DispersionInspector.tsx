@@ -172,13 +172,13 @@ export default function DispersionInspector({
           <div className="grid grid-cols-2 gap-3">
             <div className="text-center p-2 bg-slate-50 rounded">
               <p className="text-lg font-bold text-primary">
-                {ellipseDimensions.a.toFixed(1)}
+                {(ellipseDimensions.a * 2).toFixed(1)}
               </p>
               <p className="text-xs text-gray-600">Long. (yds)</p>
             </div>
             <div className="text-center p-2 bg-slate-50 rounded">
               <p className="text-lg font-bold text-primary">
-                {ellipseDimensions.b.toFixed(1)}
+                {(ellipseDimensions.b * 2).toFixed(1)}
               </p>
               <p className="text-xs text-gray-600">Lateral (yds)</p>
             </div>

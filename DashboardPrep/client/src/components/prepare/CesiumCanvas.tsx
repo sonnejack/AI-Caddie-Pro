@@ -54,6 +54,33 @@ function calculateDistanceYards(p1: LatLon, p2: LatLon): number {
   return R * c * 1.09361; // Convert to yards
 }
 
+// Sample raster pixel directly (O(1) operation)
+function sampleRasterPixel(lon: number, lat: number, maskBuffer: MaskBuffer): number {
+  const { width, height, bbox, data } = maskBuffer;
+  
+  // Convert lat/lon to pixel coordinates
+  const x = Math.floor(((lon - bbox.west) / (bbox.east - bbox.west)) * width);
+  const y = Math.floor(((bbox.north - lat) / (bbox.north - bbox.south)) * height);
+  
+  // Clamp to bounds
+  const clampedX = Math.max(0, Math.min(width - 1, x));
+  const clampedY = Math.max(0, Math.min(height - 1, y));
+  
+  // Sample pixel (assuming RGBA format, class in R channel)
+  const pixelIndex = (clampedY * width + clampedX) * 4;
+  const classId = data[pixelIndex]; // Red channel contains class ID
+  
+  // Treat unknown (0) as rough (8) - any pixel without features is rough
+  return classId === 0 ? 8 : classId;
+}
+
+// Update sample colors using classifications
+function updateSampleColors(pointsLL: Float64Array, classifications: number[]) {
+  const n = classifications.length;
+  const classArray = new Uint8Array(classifications);
+  setSamples(pointsLL, classArray);
+}
+
 function CesiumCanvas({ 
   state, 
   onPointSet, 
@@ -221,8 +248,9 @@ function CesiumCanvas({
       return;
     }
     
-    const semiMajor = (state.skillPreset.distPct / 100) * distance;
-    const semiMinor = distance * Math.tan(state.skillPreset.offlineDeg * Math.PI / 180);
+    // Match ellipse axis assignment: width (lateral) is major, depth (distance) is minor
+    const semiMajor = distance * Math.tan(state.skillPreset.offlineDeg * Math.PI / 180); // lateral error (width)
+    const semiMinor = (state.skillPreset.distPct / 100) * distance; // distance error (depth)
     
     // Validate ellipse parameters
     if (semiMajor <= 0 || semiMinor <= 0 || !isFinite(semiMajor) || !isFinite(semiMinor)) {
@@ -231,11 +259,11 @@ function CesiumCanvas({
       return;
     }
     
-    // Calculate heading from start to aim (corrected for proper orientation)
-    const dLon = state.aim.lon - state.start.lon;
-    const dLat = state.aim.lat - state.start.lat;
-    // Standard geographic bearing: 0 = North, π/2 = East, π = South, 3π/2 = West
-    const headingRad = Math.atan2(dLon * Math.cos(state.start.lat * Math.PI / 180), dLat);
+    // Calculate heading/rotation exactly like the ellipse (lines 517-526)
+    const bearing = calculateBearing(state.start, state.aim);
+    const bearingDeg = bearing * 180 / Math.PI;
+    const rotDeg = ((360 - bearingDeg) + 0) % 360; // userRot = 0 for now (same as ellipse)
+    const headingRad = rotDeg * Math.PI / 180;
     
     // Validate heading
     if (!isFinite(headingRad)) {
@@ -258,72 +286,32 @@ function CesiumCanvas({
       // Show preview points
       setSamples(previewPoints);
       setSamplesVisibility(showSamples);
+      
+      // Instant raster-based coloring (no worker needed)
+      if (maskBuffer && showSamples) {
+        // Classify points using direct raster sampling
+        const pointClassifications = new Array(samplesCount);
+        for (let i = 0; i < samplesCount; i++) {
+          const lon = previewPoints[i * 2];
+          const lat = previewPoints[i * 2 + 1];
+          
+          // Sample raster pixel directly (O(1) operation)
+          const classId = sampleRasterPixel(lon, lat, maskBuffer);
+          pointClassifications[i] = classId;
+        }
+        
+        // Update colors immediately
+        updateSampleColors(previewPoints, pointClassifications);
+      }
     } catch (error) {
       console.error('Error generating preview samples:', error);
       clearSamplesLayer();
       return;
     }
     
-    // Debounced worker call
-    workerTimeoutRef.current = setTimeout(() => {
-      if (onESWorkerCall && maskBuffer) {
-        console.log('🔄 Calling ES worker with params:', {
-          startLL: state.start,
-          aimLL: state.aim,
-          pin: state.pin,
-          skill: state.skillPreset,
-          nSamples: samplesCount
-        });
-        
-        onESWorkerCall({
-          startLL: state.start,
-          aimLL: state.aim,
-          pin: state.pin,
-          skill: state.skillPreset,
-          nSamples: samplesCount,
-          returnPoints: true,
-          seed: 1,
-          mask: maskBuffer,
-          minSamples: Math.min(100, samplesCount),
-          maxSamples: samplesCount,
-          epsilon: 0.02
-        }).catch(error => {
-          console.error('ES worker failed:', error);
-        });
-      } else {
-        console.warn('⚠️ ES worker call skipped:', { 
-          hasWorkerCall: !!onESWorkerCall, 
-          hasMaskBuffer: !!maskBuffer 
-        });
-      }
-    }, 300); // Increased debounce time
-    
   }, [state.start, state.aim, state.pin, state.skillPreset, samplesCount, showSamples, viewerReady, maskBuffer, onESWorkerCall]);
 
-  // Handle ES result updates (recolor points with classes)
-  useEffect(() => {
-    if (!esResult) return;
-    
-    console.log('🎨 Updating samples with ES result:', {
-      hasPointsLL: !!esResult.pointsLL,
-      hasClasses: !!esResult.classes,
-      pointsCount: esResult.pointsLL ? esResult.pointsLL.length / 2 : 0,
-      classesCount: esResult.classes ? esResult.classes.length : 0,
-      mean: esResult.mean,
-      ci95: esResult.ci95
-    });
-    
-    try {
-      // Update points with classes from ES result
-      if (esResult.pointsLL && esResult.classes) {
-        setSamples(esResult.pointsLL, esResult.classes);
-        console.log('✅ Successfully updated samples with classes');
-      }
-    } catch (error) {
-      console.error('Error updating samples with ES result:', error);
-    }
-    
-  }, [esResult]);
+  // Removed - using instant raster sampling instead
 
   // Handle hole polyline display
   useEffect(() => {
@@ -568,7 +556,7 @@ function CesiumCanvas({
       const maskBbox = state.maskPngMeta.bbox;
       console.log('🔴 Checking vectorFeatures:', !!vectorFeatures, vectorFeatures ? Object.keys(vectorFeatures) : 'none');
       
-      const golfFeatures = [];
+      const golfFeatures: any[] = [];  
       
       // Collect golf features (exclude OB, water hazards that extend far)
       Object.entries(vectorFeatures).forEach(([type, featuresData]: [string, any]) => {
@@ -676,28 +664,32 @@ function CesiumCanvas({
     }
   }, [viewerReady, rasterMode, maskBuffer, state.maskPngMeta?.bbox]);
 
-  // Class ID to color mapping for sample points
+  // Class ID to color mapping for sample points (matching SamplesLayer)
   const getClassColor = (classId: number) => {
     const Cesium = (window as any).Cesium;
     switch (classId) {
       case 6: // Fairway
-        return Cesium.Color.fromCssColorString('#28B43C');
+        return Cesium.Color.LIMEGREEN;
       case 5: // Green
-        return Cesium.Color.fromCssColorString('#6CFF8A');
+        return Cesium.Color.LIGHTGREEN;
       case 2: // Water
-        return Cesium.Color.fromCssColorString('#0078FF');
-      case 8: // Rough (brown)
-        return Cesium.Color.fromCssColorString('#8B5E3C');
+        return Cesium.Color.CORNFLOWERBLUE;
+      case 8: // Rough
+        return Cesium.Color.OLIVE;
       case 4: // Bunker
-        return Cesium.Color.fromCssColorString('#D2B48C');
+        return Cesium.Color.PEACHPUFF;
       case 7: // Recovery
-        return Cesium.Color.fromCssColorString('#8E44AD');
+        return Cesium.Color.PLUM;
       case 3: // Hazard
-        return Cesium.Color.fromCssColorString('#E74C3C');
+        return Cesium.Color.TOMATO;
       case 1: // OB
-        return Cesium.Color.fromCssColorString('#8E44AD');
-      default: // Unknown/Tee
-        return Cesium.Color.fromCssColorString('#D3D3D3');
+        return Cesium.Color.WHITESMOKE;
+      case 9: // Tee
+        return Cesium.Color.POWDERBLUE;
+      case 0: // Unknown/rough (treat as rough)
+        return Cesium.Color.OLIVE;
+      default: // Preview
+        return Cesium.Color.fromBytes(153, 153, 153, 255); // grey
     }
   };
 

@@ -431,9 +431,10 @@ self.addEventListener('message', (event: MessageEvent<ESWorkerInput>) => {
       const semiMajor = (skill.distPct / 100) * distance;
       const semiMinor = distance * Math.tan(skill.offlineDeg * Math.PI / 180);
       
-      // Calculate heading from start to aim (ensure consistency with client)
+      // Calculate heading from start to aim (simplified to match ellipse orientation)
       const dLon = aimLL.lon - startLL.lon;
       const dLat = aimLL.lat - startLL.lat;
+      // Simple heading calculation that should match the ellipse
       const headingRad = Math.atan2(dLon * Math.cos(startLL.lat * Math.PI / 180), dLat);
       
       // Generate samples

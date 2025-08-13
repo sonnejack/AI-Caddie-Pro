@@ -110,7 +110,6 @@ export class OverpassImporter {
         nwr["surface"="sand"](area.a);
         nwr["natural"="water"](area.a);
         nwr["waterway"](area.a);
-        nwr["highway"="path"](area.a);
       );
       (._;>;);
       out geom;`;
@@ -163,7 +162,6 @@ export class OverpassImporter {
         nwr["surface"="sand"](around:1000);
         nwr["natural"="water"](around:1000);
         nwr["waterway"](around:1000);
-        nwr["highway"="path"](around:1000);
       );
       (._;>;);
       out geom;`;

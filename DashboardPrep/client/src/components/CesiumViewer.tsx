@@ -61,7 +61,7 @@ export default function CesiumViewer({ className = "w-full h-full" }: CesiumView
             viewer.trackedEntity = undefined;
           }
         });
-
+        /*
         // Set initial camera position (golf course friendly)
         viewer.camera.setView({
           destination: window.Cesium.Cartesian3.fromDegrees(-84.68, 39.285, 1000), // TPC River's Bend area
@@ -71,7 +71,7 @@ export default function CesiumViewer({ className = "w-full h-full" }: CesiumView
             roll: 0.0
           }
         });
-
+        */
       } catch (error) {
         console.error('❌ Failed to initialize Cesium viewer:', error);
       }

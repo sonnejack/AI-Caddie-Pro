@@ -7,19 +7,19 @@ export interface BBox {
   north: number;
 }
 
-// Display palette for raster visualization (distinct from compute IDs)
-// Updated colors to fix anomalies and better match terrain types
+// Display palette for raster visualization (matching SamplesLayer colors)
+// Updated to match new SamplesLayer color scheme
 const DISPLAY_PALETTE: Record<number, [number, number, number, number]> = {
-  0: [0, 0, 0, 0],           // unknown → fully transparent
-  1: [255, 255, 255, 200],   // OB → white (more opaque)
-  2: [0, 120, 255, 180],     // Water → blue
-  3: [255, 69, 0, 160],      // Hazard → orange-red
-  4: [238, 203, 173, 160],   // Bunker → light sand
-  5: [34, 139, 34, 140],     // Green → forest green (less bright)
-  6: [50, 205, 50, 110],     // Fairway → lime green (distinct from green)
-  7: [160, 82, 45, 130],     // Recovery/Cart paths → saddle brown
-  8: [107, 142, 35, 120],    // Rough → olive drab
-  9: [255, 215, 0, 150],     // Tee → gold
+  0: [128, 128, 0, 50],     // unknown/rough → OLIVE (same as rough)
+  1: [245, 245, 245, 200],   // OB → WHITESMOKE 
+  2: [100, 149, 237, 180],   // Water → CORNFLOWERBLUE
+  3: [255, 99, 71, 160],     // Hazard → TOMATO
+  4: [255, 218, 185, 160],   // Bunker → PEACHPUFF
+  5: [144, 238, 144, 140],   // Green → LIGHTGREEN
+  6: [50, 205, 50, 110],     // Fairway → LIMEGREEN
+  7: [221, 160, 221, 130],   // Recovery → PLUM
+  8: [128, 128, 0, 120],     // Rough → OLIVE
+  9: [176, 224, 230, 150],   // Tee → POWDERBLUE
 };
 
 // Global reference to current raster layer
@@ -48,8 +48,8 @@ export function colorizeMaskToCanvas(mask: MaskBuffer): HTMLCanvasElement {
     // Count class usage for debugging
     classCount[cls] = (classCount[cls] || 0) + 1;
     
-    // Apply display palette
-    const [r, g, b, a] = DISPLAY_PALETTE[cls] ?? [128, 128, 128, 100]; // Default gray for unknown
+    // Apply display palette - treat unknown (0) as rough
+    const [r, g, b, a] = DISPLAY_PALETTE[cls] ?? [128, 128, 0, 120]; // Default to OLIVE (rough) for unknown
     dst[i] = r;
     dst[i + 1] = g;
     dst[i + 2] = b;
