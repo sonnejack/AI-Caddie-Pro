@@ -20,10 +20,22 @@ export function createMaskFromFeatures(
   console.log("[Mask] dims", width, height, "bbox", bbox);
   console.log("[Mask] aspect(px)", (width/height).toFixed(4), "aspect(deg)", ((bbox.east-bbox.west)/(bbox.north-bbox.south)).toFixed(4));
 
+  // Safety checks for canvas dimensions
+  if (width <= 0 || height <= 0 || !isFinite(width) || !isFinite(height)) {
+    console.error('❌ Invalid canvas dimensions in createMaskFromFeatures:', { width, height, bbox });
+    throw new Error(`Invalid canvas dimensions: ${width}x${height}`);
+  }
+  
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  
+  if (!ctx) {
+    console.error('❌ Failed to get canvas context in createMaskFromFeatures');
+    throw new Error('Failed to get canvas context');
+  }
+  
   ctx.imageSmoothingEnabled = false;
 
   const { toPx } = makeDegToPxMapper(bbox, width, height);
@@ -65,7 +77,13 @@ export function createMaskFromFeatures(
   }
 
   // Rough default: nothing to paint; sampler treats unknown as ROUGH
-  const imageData = ctx.getImageData(0, 0, width, height);
+  let imageData: ImageData;
+  try {
+    imageData = ctx.getImageData(0, 0, width, height);
+  } catch (error) {
+    console.error('❌ Failed to get image data in createMaskFromFeatures:', error);
+    throw new Error('Failed to get image data from canvas');
+  }
   
   // Sanitize and log histogram
   sanitizeMaskBuffer(imageData);

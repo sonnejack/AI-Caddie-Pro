@@ -729,13 +729,13 @@ function CesiumCanvas({
     // Create tight bbox around golf features only (red, 8px thick)
     if (state.maskPngMeta && state.maskPngMeta.bbox && vectorFeatures) {
       const maskBbox = state.maskPngMeta.bbox;
-      console.log('🔴 Checking vectorFeatures:', !!vectorFeatures, vectorFeatures ? Object.keys(vectorFeatures) : 'none');
+      // console.log('🔴 Checking vectorFeatures:', !!vectorFeatures, vectorFeatures ? Object.keys(vectorFeatures) : 'none');
       
       const golfFeatures: any[] = [];  
       
       // Collect golf features (exclude OB, water hazards that extend far)
       Object.entries(vectorFeatures).forEach(([type, featuresData]: [string, any]) => {
-        console.log('🔴 Processing feature type:', type, 'with data:', featuresData);
+        // console.log('🔴 Processing feature type:', type, 'with data:', featuresData);
         if (['fairways', 'greens', 'tees', 'bunkers'].includes(type)) {
           // Check if it's an object with features array, or direct array
           let features = featuresData;
@@ -744,7 +744,7 @@ function CesiumCanvas({
             features = featuresData.features || featuresData.data || featuresData;
           }
           if (Array.isArray(features)) {
-            console.log('🔴 Adding', features.length, 'features from', type);
+            // console.log('🔴 Adding', features.length, 'features from', type);
             golfFeatures.push(...features);
           } else {
             console.log('🔴 No array found in', type, '- structure:', Object.keys(featuresData || {}));
@@ -753,7 +753,7 @@ function CesiumCanvas({
       });
       
       if (golfFeatures.length > 0) {
-        console.log('🔴 Creating red tight bbox with', golfFeatures.length, 'golf features');
+        // console.log('🔴 Creating red tight bbox with', golfFeatures.length, 'golf features');
         // Calculate tight bounding box
         let minLat = Infinity, maxLat = -Infinity;
         let minLon = Infinity, maxLon = -Infinity;
@@ -787,7 +787,7 @@ function CesiumCanvas({
         };
         
         // Create tight bbox outline (red, 8px thick, ground clamped)
-        console.log('🔴 Adding red rectangle entity with bbox:', tightBbox);
+        // console.log('🔴 Adding red rectangle entity with bbox:', tightBbox);
         const tightRectangle = viewer.entities.add({
           id: 'tight-bbox',
           rectangle: {

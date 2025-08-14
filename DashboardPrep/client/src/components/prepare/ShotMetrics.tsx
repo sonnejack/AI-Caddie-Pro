@@ -5,9 +5,13 @@ interface ESResult {
   mean: number;
   ci95: number;
   n: number;
-  pointsLL: Float64Array;   // [lon0,lat0, lon1,lat1, ...] length=2n
-  distsYds: Float32Array;   // distance to pin per sample, length=n
-  classes: Uint8Array;      // raster class per sample, length=n
+  countsByClass?: Record<number, number>;
+  avgProximity?: number;
+  avgProximityInPlay?: number;
+  // Legacy format support
+  pointsLL?: Float64Array;   
+  distsYds?: Float32Array;   
+  classes?: Uint8Array;      
 }
 
 interface ShotMetricsProps {
@@ -16,8 +20,23 @@ interface ShotMetricsProps {
 }
 
 export default function ShotMetrics({ esResult, status }: ShotMetricsProps) {
-  // Calculate average proximity
-  const calculateAvgProximity = (): number | null => {
+  // Format distance: feet up to 100ft, then yards
+  const formatDistance = (yards: number): string => {
+    const feet = yards * 3;
+    if (feet <= 100) {
+      return `${feet.toFixed(0)} ft`;
+    } else {
+      return `${yards.toFixed(1)} yds`;
+    }
+  };
+
+  // Get average proximity - use new format if available, fallback to legacy
+  const getAvgProximity = (): number | null => {
+    if (esResult?.avgProximity !== undefined) {
+      return esResult.avgProximity;
+    }
+    
+    // Fallback to legacy calculation
     if (!esResult || !esResult.distsYds || esResult.distsYds.length === 0) return null;
     
     let total = 0;
@@ -27,8 +46,13 @@ export default function ShotMetrics({ esResult, status }: ShotMetricsProps) {
     return total / esResult.distsYds.length;
   };
 
-  // Calculate in-play proximity (excluding OB and Water)
-  const calculateInPlayProximity = (): number | null => {
+  // Get in-play proximity - use new format if available, fallback to legacy
+  const getInPlayProximity = (): number | null => {
+    if (esResult?.avgProximityInPlay !== undefined) {
+      return esResult.avgProximityInPlay;
+    }
+    
+    // Fallback to legacy calculation
     if (!esResult || !esResult.distsYds || !esResult.classes || esResult.distsYds.length === 0) return null;
     
     let total = 0;
@@ -46,8 +70,13 @@ export default function ShotMetrics({ esResult, status }: ShotMetricsProps) {
     return count > 0 ? total / count : null;
   };
 
-  // Get class counts for breakdown
+  // Get class counts for breakdown - use new format if available, fallback to legacy
   const getClassCounts = () => {
+    if (esResult?.countsByClass) {
+      return esResult.countsByClass;
+    }
+    
+    // Fallback to legacy calculation
     if (!esResult || !esResult.classes) return {};
     
     const counts: Record<number, number> = {};
@@ -69,8 +98,8 @@ export default function ShotMetrics({ esResult, status }: ShotMetricsProps) {
     }
   };
 
-  const avgProximity = calculateAvgProximity();
-  const inPlayProximity = calculateInPlayProximity();
+  const avgProximity = getAvgProximity();
+  const inPlayProximity = getInPlayProximity();
   const classCounts = getClassCounts();
 
   return (
@@ -84,24 +113,26 @@ export default function ShotMetrics({ esResult, status }: ShotMetricsProps) {
       <CardContent className="space-y-4">
         {esResult ? (
           <>
-            {/* Expected Strokes - Exact format: {mean.toFixed(3)} ± {ci95.toFixed(3)} (n={n}) */}
+            {/* Expected Strokes - Average stroke count for sampled shots */}
             <div className="p-3 bg-slate-50 rounded-lg">
               <h4 className="text-sm font-medium text-gray-700 mb-1">Expected Strokes</h4>
               <p className="text-lg font-bold text-primary">
-                {esResult.mean.toFixed(3)} ± {esResult.ci95.toFixed(3)} (n={esResult.n})
+                {esResult.mean.toFixed(3)} ± {esResult.ci95.toFixed(3)}
               </p>
+              <p className="text-xs text-gray-600">Average strokes to hole (n={esResult.n})</p>
             </div>
 
-            {/* Average Proximity - Exact format: {avg(distsYds).toFixed(1)} yds */}
+            {/* Average Proximity - Average distance from sampled shots to pin */}
             <div className="p-3 bg-slate-50 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-700 mb-1">Avg Proximity</h4>
+              <h4 className="text-sm font-medium text-gray-700 mb-1">Avg Proximity to Pin</h4>
               <p className="text-lg font-bold text-primary">
-                {avgProximity !== null ? avgProximity.toFixed(1) : '---'} yds
+                {avgProximity !== null ? formatDistance(avgProximity) : '---'}
               </p>
-              {/* In-Play Proximity - avg(distsYds where class ∉ {OB,Water}) */}
+              <p className="text-xs text-gray-600">Distance from sampled shots to pin</p>
+              {/* In-Play Proximity - excluding OB and Water */}
               {inPlayProximity !== null && (
-                <p className="text-xs text-gray-600">
-                  In-Play Proximity: {inPlayProximity.toFixed(1)} yds
+                <p className="text-xs text-gray-600 mt-1">
+                  In-Play: {formatDistance(inPlayProximity)}
                 </p>
               )}
             </div>

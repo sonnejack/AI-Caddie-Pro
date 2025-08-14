@@ -386,13 +386,17 @@ export default function Dashboard() {
           status={esResult ? 'converged' : 'idle'}
         />
         <OptimizerPanel 
+          viewer={cesiumViewerRef}
           start={start}
           pin={pin}
+          aim={aim}
           skill={skill}
           maxCarry={maxCarry}
-          mask={mask}
           maskBuffer={maskBuffer}
-          onBestResult={setBest}
+          onAimSet={setAim}
+          onOptimizationComplete={(candidates) => {
+            console.log('🎯 Optimization complete:', candidates.length, 'candidates');
+          }}
         />
       </div>
     </div>

@@ -109,7 +109,7 @@ function scheduleAsyncRefine() {
   });
 }
 
-export function setSamples(pointsLL: Float64Array, classes?: Uint8Array) {
+export function setSamples(pointsLL: Float64Array<ArrayBuffer>, classes?: Uint8Array) {
   if (!viewerRef) return;
   const Cesium = getCesium();
 

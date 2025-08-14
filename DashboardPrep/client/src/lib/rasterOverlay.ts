@@ -26,10 +26,29 @@ const DISPLAY_PALETTE: Record<number, [number, number, number, number]> = {
 let rasterLayer: any = null;
 
 export function colorizeMaskToCanvas(mask: MaskBuffer): HTMLCanvasElement {
+  // Safety checks for mask data
+  if (!mask || !mask.data || mask.width <= 0 || mask.height <= 0) {
+    console.error('❌ Invalid mask provided to colorizeMaskToCanvas:', { 
+      width: mask?.width, 
+      height: mask?.height, 
+      hasData: !!mask?.data 
+    });
+    // Return a minimal valid canvas instead of crashing
+    const cnv = document.createElement("canvas");
+    cnv.width = 1;
+    cnv.height = 1;
+    return cnv;
+  }
+  
   const cnv = document.createElement("canvas");
   cnv.width = mask.width;
   cnv.height = mask.height;
-  const ctx = cnv.getContext("2d")!;
+  const ctx = cnv.getContext("2d");
+  
+  if (!ctx) {
+    console.error('❌ Failed to get canvas context in colorizeMaskToCanvas');
+    return cnv;
+  }
   
   // Disable image smoothing for crisp pixels (required for edge artifact fix)
   ctx.imageSmoothingEnabled = false;
@@ -81,10 +100,29 @@ export function colorizeMaskToCanvas(mask: MaskBuffer): HTMLCanvasElement {
 }
 
 export function edgesMaskToCanvas(mask: MaskBuffer): HTMLCanvasElement {
+  // Safety checks for mask data
+  if (!mask || !mask.data || mask.width <= 0 || mask.height <= 0) {
+    console.error('❌ Invalid mask provided to edgesMaskToCanvas:', { 
+      width: mask?.width, 
+      height: mask?.height, 
+      hasData: !!mask?.data 
+    });
+    // Return a minimal valid canvas instead of crashing
+    const cnv = document.createElement("canvas");
+    cnv.width = 1;
+    cnv.height = 1;
+    return cnv;
+  }
+  
   const cnv = document.createElement("canvas");
   cnv.width = mask.width;
   cnv.height = mask.height;
-  const ctx = cnv.getContext("2d")!;
+  const ctx = cnv.getContext("2d");
+  
+  if (!ctx) {
+    console.error('❌ Failed to get canvas context in edgesMaskToCanvas');
+    return cnv;
+  }
   
   // Disable image smoothing for crisp edge visualization  
   ctx.imageSmoothingEnabled = false;
@@ -128,7 +166,31 @@ export function edgesMaskToCanvas(mask: MaskBuffer): HTMLCanvasElement {
 export function showRasterLayer(viewer: any, canvas: HTMLCanvasElement, bbox: BBox, alpha: number = 1.0) {
   hideRasterLayer(viewer);
   
-  const url = canvas.toDataURL("image/png");
+  // Safety check: ensure canvas has valid dimensions and context
+  if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+    console.warn('⚠️ Invalid canvas provided to showRasterLayer:', { width: canvas?.width, height: canvas?.height });
+    return;
+  }
+  
+  // Safety check: ensure canvas context is available
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    console.warn('⚠️ Canvas context not available in showRasterLayer');
+    return;
+  }
+  
+  let url: string;
+  try {
+    url = canvas.toDataURL("image/png");
+    if (!url || url === 'data:,') {
+      console.warn('⚠️ Canvas toDataURL returned empty or invalid result');
+      return;
+    }
+  } catch (error) {
+    console.error('❌ Failed to convert canvas to data URL:', error);
+    return;
+  }
+  
   const Cesium = (window as any).Cesium;
   
   const provider = new Cesium.SingleTileImageryProvider({

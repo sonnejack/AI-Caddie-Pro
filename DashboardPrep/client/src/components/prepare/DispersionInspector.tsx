@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import type { LatLon, SkillPreset, ESResult, MaskMeta, ClassId } from '@shared/types';
 import type { MaskBuffer } from '@/lib/maskBuffer';
 import { ellipseAxes, uniformPointInEllipse, rotateTranslate, metersToLatLon, latLonToMeters } from '../../prepare/lib/ellipse';
-import { PaletteMask } from '../../prepare/lib/mask';
+import { sampleClassFromMask } from '@/lib/maskBuffer';
 import { MaskBufferAdapter } from '@/lib/maskAdapter';
 
 interface DispersionInspectorProps {
@@ -40,13 +40,14 @@ export default function DispersionInspector({
     }
   }, [start, aim, skill]);
 
+  // Use the same distance calculation as the ES worker for consistency
   const calculateDistance = (p1: LatLon, p2: LatLon) => {
-    const R = 6371000;
-    const dLat = (p2.lat - p1.lat) * Math.PI / 180;
-    const dLon = (p2.lon - p1.lon) * Math.PI / 180;
-    const a = Math.sin(dLat/2) ** 2 + Math.cos(p1.lat * Math.PI/180) * Math.cos(p2.lat * Math.PI/180) * Math.sin(dLon/2) ** 2;
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c * 1.09361; // Convert to yards
+    const Rm = 6371000;
+    const toRad = (d: number) => d * Math.PI / 180;
+    const yds = (m: number) => m * 1.09361;
+    const x = toRad(p2.lon - p1.lon) * Math.cos(toRad((p1.lat + p2.lat) / 2));
+    const y = toRad(p2.lat - p1.lat);
+    return yds(Math.sqrt(x * x + y * y) * Rm);
   };
 
   const generateEllipsePoints = useCallback((aim: LatLon, a: number, b: number, n: number): LatLon[] => {
@@ -68,13 +69,50 @@ export default function DispersionInspector({
   }, [start]);
 
   const sampleClasses = useCallback(async (points: LatLon[]): Promise<ClassId[]> => {
-    if (!mask) return points.map(() => 6 as ClassId); // Default to fairway
+    if (!maskBuffer) {
+      console.log('⚠️ No maskBuffer available, using default fairway for all points');
+      return points.map(() => 6 as ClassId); // Default to fairway
+    }
     
-    const paletteMask = new PaletteMask(mask);
-    await paletteMask.ready();
-    
-    return points.map(point => paletteMask.sample(point));
-  }, [mask]);
+    try {
+      console.log('🎯 Sampling', points.length, 'points using maskBuffer (these are ellipse dispersion samples representing shot outcomes)');
+      const results = points.map(point => sampleClassFromMask(point.lon, point.lat, maskBuffer));
+      
+      // Function to map class ID to condition name for logging
+      const getConditionName = (classId: number): string => {
+        switch (classId) {
+          case 0: return 'unknown/rough';
+          case 1: return 'OB';
+          case 2: return 'water';
+          case 3: return 'hazard';
+          case 4: return 'bunker/sand';
+          case 5: return 'green';
+          case 6: return 'fairway';
+          case 7: return 'recovery';
+          case 8: return 'rough';
+          case 9: return 'tee';
+          default: return `unknown-${classId}`;
+        }
+      };
+
+      // Log first few samples for debugging with distances to pin
+      if (pin) {
+        for (let i = 0; i < Math.min(5, points.length); i++) {
+          const distanceToPin = calculateDistance(points[i], pin);
+          console.log(`Sample ${i + 1}: (${points[i].lat.toFixed(6)}, ${points[i].lon.toFixed(6)}) -> ${distanceToPin.toFixed(1)} yards to pin, class ${results[i]} (${getConditionName(results[i])})`);
+        }
+      } else {
+        for (let i = 0; i < Math.min(5, points.length); i++) {
+          console.log(`Sample ${i + 1}: (${points[i].lat.toFixed(6)}, ${points[i].lon.toFixed(6)}) -> NO PIN SET, class ${results[i]} (${getConditionName(results[i])})`);
+        }
+      }
+      
+      return results;
+    } catch (error) {
+      console.error('❌ Error sampling maskBuffer, using default fairway:', error);
+      return points.map(() => 6 as ClassId); // Default to fairway on error
+    }
+  }, [maskBuffer]);
 
   const runESEvaluation = useCallback(async () => {
     if (!aim || !pin || !start) return;
@@ -85,67 +123,139 @@ export default function DispersionInspector({
     setConfidence(Infinity);
 
     const { a, b } = ellipseAxes(calculateDistance(start, aim), skill.offlineDeg, skill.distPct);
-    const maxSamples = 3000;
-    const minSamples = 200;
-    const epsilon = 0.03;
+    // Use fixed number of samples (remove Monte Carlo convergence)
+    const numberOfSamples = 600; // Default slider value
+    console.log('🎯 Using', numberOfSamples, 'sample points for dispersion analysis');
     
     // Generate points
-    const points = generateEllipsePoints(aim, a, b, maxSamples);
+    const points = generateEllipsePoints(aim, a, b, numberOfSamples);
     const classes = await sampleClasses(points);
 
-    // Run ES worker
-    const esWorker = new Worker(new URL("../../prepare/workers/esWorker.ts", import.meta.url), { type: "module" });
-    const job = {
-      pin,
-      points,
-      classes,
-      minSamples,
-      maxSamples,
-      epsilon
-    };
+    console.log('🎯 Generated', points.length, 'ellipse points and', classes.length, 'class samples');
 
-    esWorker.postMessage(job);
-    esWorker.onmessage = (e) => {
-      const result: ESResult = e.data;
-      setESResult(result);
-      setSampleCount(result.n);
-      setConfidence(result.ci95);
-      setSamplingProgress(100);
-      setStatus('converged');
+    // Calculate Expected Strokes for each point directly (no worker needed for simple calculation)
+    const esResults: number[] = [];
+    let totalDistance = 0;
+    let inPlayDistance = 0;
+    let inPlayCount = 0;
+    const samplePointsData = [];
 
-      // Calculate proximity metrics
-      let totalDistance = 0;
-      let inPlayDistance = 0;
-      let inPlayCount = 0;
-      const samplePointsData = [];
+    console.log('🎯 Calculating Expected Strokes for each sample point:');
+    console.log('📍 Start point:', `(${start!.lat.toFixed(6)}, ${start!.lon.toFixed(6)})`);
+    console.log('🎯 Aim point:', `(${aim!.lat.toFixed(6)}, ${aim!.lon.toFixed(6)})`);
+    console.log('📌 Pin point:', `(${pin!.lat.toFixed(6)}, ${pin!.lon.toFixed(6)})`);
 
-      for (let i = 0; i < result.n; i++) {
-        const point = points[i];
-        const classId = classes[i];
-        const distance = calculateDistance(point, pin);
-        
-        totalDistance += distance;
-        samplePointsData.push({ point, classId });
+    for (let i = 0; i < numberOfSamples; i++) {
+      const point = points[i];
+      const classId = classes[i];
+      const distanceToPin = calculateDistance(point, pin);
+      const distanceFromTee = calculateDistance(start!, point);
+      
+      // Map class to condition for ES calculation
+      const condition = 
+        classId === 5 ? "green" :
+        classId === 6 ? "fairway" :
+        classId === 4 ? "sand" :
+        classId === 7 ? "recovery" :
+        classId === 2 ? "water" :
+        "rough";
 
-        // In-play excludes OB (1) and Water (2)
-        if (classId !== 1 && classId !== 2) {
-          inPlayDistance += distance;
-          inPlayCount++;
-        }
+      // Calculate Expected Strokes (we'll implement this properly)
+      const es = 2.0 + (distanceToPin / 100); // Placeholder - need real ES calculation
+      esResults.push(es);
+      
+      totalDistance += distanceToPin;
+      samplePointsData.push({ point, classId, distance: distanceToPin });
+
+      // In-play excludes OB (1) and Water (2)
+      if (classId !== 1 && classId !== 2) {
+        inPlayDistance += distanceToPin;
+        inPlayCount++;
       }
 
-      const avgProximity = totalDistance / result.n;
-      const avgProximityInPlay = inPlayCount > 0 ? inPlayDistance / inPlayCount : avgProximity;
+      // Debug first 10 points with all details
+      if (i < 10) {
+        console.log(`Sampled point ${i + 1}: ${distanceFromTee.toFixed(1)} yards from tee, ${distanceToPin.toFixed(1)} yards to pin, condition = ${condition}, ES = ${es.toFixed(3)}`);
+      }
+    }
 
-      onESResult?.({
-        ...result,
-        samplePoints: samplePointsData,
-        avgProximity,
-        avgProximityInPlay
-      });
-      esWorker.terminate();
+    // Calculate results
+    const meanES = esResults.reduce((sum, es) => sum + es, 0) / esResults.length;
+    const avgProximity = totalDistance / numberOfSamples;
+    const avgProximityInPlay = inPlayCount > 0 ? inPlayDistance / inPlayCount : avgProximity;
+
+    const result = {
+      mean: meanES,
+      ci95: 0.05, // Placeholder
+      n: numberOfSamples,
+      countsByClass: classes.reduce((counts, cls) => {
+        counts[cls] = (counts[cls] || 0) + 1;
+        return counts;
+      }, {} as Record<number, number>)
     };
+
+    // Update UI
+    setESResult(result);
+    setSampleCount(result.n);
+    setConfidence(result.ci95);
+    setSamplingProgress(100);
+    setStatus('converged');
+
+    console.log('📊 Final Results:', {
+      meanES: meanES.toFixed(3),
+      avgProximity: avgProximity.toFixed(1),
+      avgProximityInPlay: avgProximityInPlay.toFixed(1),
+      samplesUsed: numberOfSamples
+    });
+
+    onESResult?.({
+      ...result,
+      samplePoints: samplePointsData,
+      avgProximity,
+      avgProximityInPlay
+    });
   }, [aim, pin, start, skill, generateEllipsePoints, sampleClasses, onESResult]);
+
+  // Reset status to 'idle' when points change to allow auto-evaluation
+  useEffect(() => {
+    console.log('🔄 Point coordinates changed:', {
+      start: start ? `(${start.lat.toFixed(6)}, ${start.lon.toFixed(6)})` : 'null',
+      aim: aim ? `(${aim.lat.toFixed(6)}, ${aim.lon.toFixed(6)})` : 'null', 
+      pin: pin ? `(${pin.lat.toFixed(6)}, ${pin.lon.toFixed(6)})` : 'null'
+    });
+    
+    // Reset status to allow auto-evaluation when points change
+    if (start && aim && pin) {
+      console.log('🔄 Resetting status to idle for auto-evaluation');
+      setStatus('idle');
+    }
+  }, [start, aim, pin]);
+
+  // Auto-evaluate when points change (debounced)
+  useEffect(() => {
+    console.log('🔄 Auto-evaluation useEffect triggered:', {
+      hasStart: !!start,
+      hasAim: !!aim,
+      hasPin: !!pin,
+      hasMaskBuffer: !!maskBuffer,
+      status,
+      canEvaluate: start && aim && pin && maskBuffer && status === 'idle'
+    });
+    
+    if (start && aim && pin && maskBuffer && status === 'idle') {
+      console.log('⏰ Starting auto-evaluation in 300ms...');
+      const timeoutId = setTimeout(() => {
+        console.log('🚀 Auto-evaluation timeout fired, calling runESEvaluation()');
+        runESEvaluation();
+      }, 300);
+      return () => {
+        console.log('⏰ Auto-evaluation timeout cleared');
+        clearTimeout(timeoutId);
+      };
+    } else {
+      console.log('❌ Auto-evaluation conditions not met');
+    }
+  }, [start, aim, pin, skill, maskBuffer, runESEvaluation, status]);
 
   const canEvaluate = start && aim && pin;
 

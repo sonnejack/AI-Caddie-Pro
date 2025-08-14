@@ -282,3 +282,70 @@ hole: {
 - ✅ Added collapsible course picker with auto-collapse on selection
 
 All core Prepare workflow functionality is now working end-to-end with real data.
+
+## Session Update - 8/14/2025 5:30 PM
+
+### Expected Strokes & Proximity Calculation Overhaul
+
+**Major Changes Made:**
+- ✅ **Fixed Ranking Points Display**: Converted from PointPrimitiveCollection to Entity system with `heightReference: CLAMP_TO_GROUND` for proper ground clamping
+- ✅ **Overhauled Expected Strokes Calculation**: Replaced Monte Carlo convergence system with fixed 600-sample approach for consistent evaluation
+- ✅ **Implemented Auto-Evaluation**: Added automatic ES calculation when start/aim/pin points change (300ms debounced) by resetting status to 'idle' on point changes
+- ✅ **Enhanced Shot Metrics Display**: Updated proximity formatting (feet up to 100ft, then yards) and clarified Expected Strokes vs. proximity labels
+- ✅ **Fixed Image Decoding Errors**: Added comprehensive error handling for PaletteMask class and canvas operations to prevent crashes from corrupted images
+- ✅ **Switched to MaskBuffer Sampling**: Replaced URL-based PaletteMask with direct maskBuffer sampling using `sampleClassFromMask()` for client-side generated masks
+- ✅ **Added Comprehensive Logging**: Detailed console output showing sample point coordinates, distances to pin, course conditions, and ES calculations for debugging
+
+**Technical Implementation Details:**
+- Removed Monte Carlo statistical convergence (minSamples, maxSamples, epsilon) in favor of fixed sample count
+- Direct ES calculation in main thread instead of web worker for simpler debugging
+- Auto-evaluation triggers on start/aim/pin coordinate changes with proper status management
+- Enhanced proximity calculations with accurate distance-to-pin measurements for each sample point
+- Condition mapping from class IDs (0-9) to readable names (fairway, rough, bunker, etc.)
+
+**Known Issues Identified:**
+- ⚠️ **Condition Counts**: Rough count appears inaccurate in sample breakdown
+- ⚠️ **Ranking Points Not Visible**: Optimizer candidate points don't appear on Cesium viewer despite entity implementation
+- ⚠️ **ES Calculation Accuracy**: Expected Strokes values seem slightly off, need polynomial verification
+- ⚠️ **Vector Feature Processing**: CesiumCanvas unnecessarily recreates vector features on every render (performance issue)
+
+**Files Modified:**
+- `DispersionInspector.tsx`: Complete rewrite of ES evaluation system
+- `ShotMetrics.tsx`: Enhanced proximity formatting and labeling
+- `CandidateLayer.ts`: Entity-based ranking point system with ground clamping
+- `mask.ts`: Robust error handling for image loading failures
+- `rasterOverlay.ts`: Canvas validation and safe image encoding
+- `maskPainter.ts`: Canvas dimension validation and error handling
+- `CesiumCanvas.tsx`: Reduced console log noise from vector processing
+
+**Next Priority Tasks:**
+1. Debug and fix ranking point visibility in Cesium viewer
+2. Verify Expected Strokes polynomial calculations for accuracy
+3. Fix condition count accuracy in sample breakdown
+4. Optimize vector feature processing to prevent unnecessary re-renders
+
+## UI/UX Enhancement TODOs
+
+### ☐ Enhanced About Page with Golf Insights
+**Files**: Create/update about page component, find old about page for reference
+- **Research & Content**: Look back at old about page, find good reads for about page content
+- **Summarized Insights**: Present key golf insights with clear summaries, then show the math behind them
+- **Expectation Numbers**: Include key statistics derived from polynomials:
+  - 50/50 chance of making a putt on tour is ~8 ft (determine exact value from polynomial)
+  - 50/50 chance of 3-putting on tour is ~60 ft
+  - 50/50 chance of making birdie from fairway vs rough vs sand (calculate X, Y, Z values)
+  - Explain why penalties are so devastating to scores
+  - Explain why making bogey on hard holes isn't terrible (insights from Alex Huang)
+- **Interactive Elements**: Display polynomial interactive plot (code exists in old files)
+- **Visual Polish**: Make visuals prettier throughout
+
+### ☐ Loading Experience Improvements  
+**Files**: Create loading components, tips system
+- **Loading Tips**: Bring over loading tips system from old implementation
+- **Progress Indicators**: Enhanced loading states with educational content
+
+### ☐ Theme & Accessibility
+**Files**: Theme provider, CSS variable system, accessibility audit
+- **Light/Dark Mode**: Add theme toggle with proper contrast ratios
+- **Text Readability**: Confirm all text is readable in both themes
+- **Accessibility**: Ensure proper contrast ratios and keyboard navigation

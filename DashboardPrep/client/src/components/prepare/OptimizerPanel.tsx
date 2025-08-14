@@ -1,197 +1,291 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import type { LatLon, SkillPreset, AimCandidate, ESResult, MaskMeta, ClassId } from '@shared/types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import type { LatLon, SkillPreset } from '@/lib/types';
 import type { MaskBuffer } from '@/lib/maskBuffer';
-import { ellipseAxes, uniformPointInEllipse, rotateTranslate, metersToLatLon, latLonToMeters } from '../../prepare/lib/ellipse';
-import { PaletteMask } from '../../prepare/lib/mask';
-import { MaskBufferAdapter } from '@/lib/maskAdapter';
+import type { OptimizerInput, Candidate, ProgressMsg, DoneMsg, ErrorMsg, OptimizeMsg } from '@/lib/optimizer/types';
+import { initCandidateLayer, setCandidates as setCandidatePoints, clearCandidates, onCandidateClick } from './CandidateLayer';
 
 interface OptimizerPanelProps {
+  viewer?: any; // Cesium viewer reference
   start?: LatLon;
   pin?: LatLon;
+  aim?: LatLon;
   skill: SkillPreset;
   maxCarry: number;
-  mask?: MaskMeta;
   maskBuffer?: MaskBuffer;
-  onBestResult?: (result: AimCandidate) => void;
+  heightGrid?: any; // Height grid data - only used for advanced short game analysis (not implemented yet)
+  onAimSet?: (aim: LatLon) => void; // Called when user clicks a candidate
+  onOptimizationComplete?: (candidates: Candidate[]) => void;
 }
 
 export default function OptimizerPanel({ 
-  start, pin, skill, maxCarry, mask, maskBuffer, onBestResult 
+  viewer,
+  start, 
+  pin, 
+  aim,
+  skill, 
+  maxCarry, 
+  maskBuffer,
+  heightGrid,
+  onAimSet,
+  onOptimizationComplete
 }: OptimizerPanelProps) {
+  const [strategy, setStrategy] = useState<'CEM' | 'RingGrid'>('CEM');
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [optimizationProgress, setOptimizationProgress] = useState(0);
-  const [candidates, setCandidates] = useState<AimCandidate[]>([]);
+  const [progress, setProgress] = useState(0);
+  const [progressNote, setProgressNote] = useState<string>('');
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [error, setError] = useState<string>('');
+  
+  // Advanced parameters (with defaults)
+  const [maxDistance, setMaxDistance] = useState(maxCarry);
+  const [nEarly, setNEarly] = useState(250);
+  const [nFinal, setNFinal] = useState(600);
+  const [ci95Stop, setCi95Stop] = useState(0.04);
 
-  const canOptimize = start && pin && skill;
+  const workerRef = useRef<Worker | null>(null);
+  const candidateLayerInitialized = useRef(false);
 
-  const generateEllipsePoints = useCallback((aim: LatLon, a: number, b: number, n: number): LatLon[] => {
-    if (!start) return [];
-    
-    // Calculate bearing from start to aim
-    const startMeters = latLonToMeters(start, start);
-    const aimMeters = latLonToMeters(aim, start);
-    const bearing = Math.atan2(aimMeters.x - startMeters.x, aimMeters.y - startMeters.y);
-    
-    const points: LatLon[] = [];
-    for (let i = 1; i <= n; i++) {
-      const localPoint = uniformPointInEllipse(i, a, b);
-      const rotatedPoint = rotateTranslate(localPoint.x, localPoint.y, bearing, aimMeters);
-      const worldPoint = metersToLatLon(rotatedPoint.x, rotatedPoint.y, start);
-      points.push(worldPoint);
+  const canOptimize = start && pin && skill && maskBuffer;
+
+  // Initialize candidate layer when viewer becomes available
+  useEffect(() => {
+    if (viewer && !candidateLayerInitialized.current) {
+      initCandidateLayer(viewer);
+      candidateLayerInitialized.current = true;
+      
+      // Set up candidate click handler
+      onCandidateClick((idx: number, candidate: Candidate) => {
+        onAimSet?.({ lon: candidate.lon, lat: candidate.lat });
+      });
     }
-    return points;
-  }, [start]);
+  }, [viewer, onAimSet]);
 
-  const sampleClasses = useCallback(async (points: LatLon[]): Promise<ClassId[]> => {
-    if (!mask) return points.map(() => 6 as ClassId); // Default to fairway
-    
-    const paletteMask = new PaletteMask(mask);
-    await paletteMask.ready();
-    
-    return points.map(point => paletteMask.sample(point));
-  }, [mask]);
-
-  const runESForJob = useCallback(async (job: any): Promise<ESResult> => {
-    return new Promise((resolve) => {
-      const esWorker = new Worker(new URL("../../prepare/workers/esWorker.ts", import.meta.url), { type: "module" });
-      esWorker.postMessage(job);
-      esWorker.onmessage = (e) => {
-        resolve(e.data);
-        esWorker.terminate();
-      };
-    });
-  }, []);
-
-  const toLatLon = useCallback((rYds: number, thRad: number): LatLon => {
-    if (!start) return start!;
-    
-    // Convert polar coordinates to lat/lon
-    const meters = rYds / 1.09361; // Convert yards to meters
-    const x = meters * Math.sin(thRad);
-    const y = meters * Math.cos(thRad);
-    
-    return metersToLatLon(x, y, start);
-  }, [start]);
-
-  const axesFor = useCallback((distanceYds: number) => {
-    return ellipseAxes(distanceYds, skill.offlineDeg, skill.distPct);
-  }, [skill]);
-
-  const feasible = useCallback((rYds: number, thRad: number): boolean => {
-    // Simple feasibility check - can be enhanced with hazard avoidance
-    return rYds > 0 && rYds <= maxCarry;
+  // Update max distance when maxCarry changes
+  useEffect(() => {
+    setMaxDistance(maxCarry);
   }, [maxCarry]);
 
   const handleRunOptimizer = useCallback(async () => {
     if (!canOptimize || isOptimizing) return;
 
-    setIsOptimizing(true);
-    setOptimizationProgress(0);
-    setCandidates([]);
+    // Check if strategy is implemented
+    if (strategy === 'RingGrid') {
+      setError('Ring Grid optimizer is not implemented yet. Please use CEM optimizer instead.');
+      return;
+    }
 
-    const optConfig = {
-      maxCarryYds: maxCarry,
-      iterations: 6,
-      batchSize: 64,
-      elitePct: 0.15,
-      sigmaFloor: { r: 5, thDeg: 2 },
-      epsilon: 0.03,
-      minSamples: 200,
-      maxSamples: 3000
-    };
+    setIsOptimizing(true);
+    setProgress(0);
+    setProgressNote('');
+    setError('');
+    setCandidates([]);
+    clearCandidates();
 
     try {
-      // Create feeds object for the optimizer
-      const feeds = {
-        feasible,
-        toLatLon,
-        axesFor,
-        makeEllipsePoints: generateEllipsePoints,
-        sampleClasses,
-        es: runESForJob
-      };
-
-      const optimizerWorker = new Worker(new URL("../../prepare/workers/optimizerWorker.ts", import.meta.url), { type: "module" });
-      
-      optimizerWorker.postMessage({
+      // Create optimizer input
+      const optimizerInput: OptimizerInput = {
         start: start!,
         pin: pin!,
-        feeds,
-        cfg: optConfig
-      });
-
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        setOptimizationProgress(prev => {
-          const newProgress = Math.min(prev + Math.random() * 10 + 5, 95);
-          return newProgress;
-        });
-      }, 300);
-
-      optimizerWorker.onmessage = (e) => {
-        const result: AimCandidate = e.data;
-        clearInterval(progressInterval);
-        setOptimizationProgress(100);
-        setIsOptimizing(false);
-        
-        // Set best result and create alternatives (mock for now)
-        const mockAlternatives: AimCandidate[] = [
-          result,
-          {
-            aim: { lat: result.aim.lat + 0.0002, lon: result.aim.lon - 0.0003 },
-            es: { ...result.es, mean: result.es.mean + 0.025 },
-            distanceYds: result.distanceYds - 10
-          },
-          {
-            aim: { lat: result.aim.lat - 0.0003, lon: result.aim.lon + 0.0004 },
-            es: { ...result.es, mean: result.es.mean + 0.045 },
-            distanceYds: result.distanceYds + 15
-          }
-        ];
-        
-        setCandidates(mockAlternatives);
-        onBestResult?.(result);
-        optimizerWorker.terminate();
+        maxDistanceMeters: maxDistance * 0.9144, // Convert yards to meters
+        skill: {
+          offlineDeg: skill.offlineDeg,
+          distPct: skill.distPct
+        },
+        mask: {
+          width: maskBuffer!.width,
+          height: maskBuffer!.height,
+          bbox: maskBuffer!.bbox,
+          classes: maskBuffer!.data // Pass the full RGBA data, worker will extract class data
+        },
+        // heightGrid: Only used for advanced short game analysis (not implemented yet)
+        // For normal optimization, we don't use elevation data
+        heightGrid: undefined,
+        eval: {
+          nEarly,
+          nFinal,
+          ci95Stop
+        },
+        constraints: {
+          disallowFartherThanPin: true,
+          minSeparationMeters: 2.74 // ~3 yards
+        }
       };
 
-      optimizerWorker.onerror = (error) => {
+      // Create worker
+      workerRef.current = new Worker(
+        new URL("../../workers/optimizerWorker.ts", import.meta.url), 
+        { type: "module" }
+      );
+
+      // Set up message handlers
+      workerRef.current.onmessage = (e: MessageEvent<ProgressMsg | DoneMsg | ErrorMsg>) => {
+        const message = e.data;
+        
+        switch (message.type) {
+          case 'progress':
+            setProgress(message.pct);
+            setProgressNote(message.note || '');
+            break;
+            
+          case 'done':
+            setProgress(100);
+            setProgressNote('Optimization complete');
+            setIsOptimizing(false);
+            
+            const resultCandidates = message.result.candidates;
+            setCandidates(resultCandidates);
+            setCandidatePoints(resultCandidates);
+            onOptimizationComplete?.(resultCandidates);
+            
+            // Auto-set the best candidate as aim
+            if (resultCandidates.length > 0) {
+              const bestCandidate = resultCandidates[0];
+              onAimSet?.({ lon: bestCandidate.lon, lat: bestCandidate.lat });
+            }
+            break;
+            
+          case 'error':
+            setError(message.error);
+            setIsOptimizing(false);
+            setProgress(0);
+            setProgressNote('');
+            break;
+        }
+      };
+
+      workerRef.current.onerror = (error) => {
         console.error('Optimizer worker error:', error);
-        clearInterval(progressInterval);
+        setError('Optimizer worker failed');
         setIsOptimizing(false);
-        setOptimizationProgress(0);
+        setProgress(0);
+        setProgressNote('');
       };
+
+      // Start optimization
+      const message: OptimizeMsg = {
+        type: 'run',
+        strategy,
+        input: optimizerInput
+      };
+      
+      workerRef.current.postMessage(message);
 
     } catch (error) {
       console.error('Failed to start optimization:', error);
+      setError(error instanceof Error ? error.message : 'Failed to start optimization');
       setIsOptimizing(false);
-      setOptimizationProgress(0);
+      setProgress(0);
+      setProgressNote('');
     }
-  }, [canOptimize, isOptimizing, maxCarry, start, pin, feasible, toLatLon, axesFor, generateEllipsePoints, sampleClasses, runESForJob, onBestResult]);
+  }, [canOptimize, isOptimizing, strategy, start, pin, maxDistance, skill, maskBuffer, heightGrid, nEarly, nFinal, ci95Stop, onAimSet, onOptimizationComplete]);
 
   const handleCancelOptimization = useCallback(() => {
+    if (workerRef.current) {
+      workerRef.current.postMessage({ type: 'cancel' });
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
     setIsOptimizing(false);
-    setOptimizationProgress(0);
+    setProgress(0);
+    setProgressNote('');
   }, []);
 
-  const getESDisplay = (candidate: AimCandidate) => {
-    return `${candidate.es.mean.toFixed(3)} ± ${candidate.es.ci95.toFixed(3)}`;
+  const handleCandidateClick = useCallback((candidate: Candidate, rank: number) => {
+    onAimSet?.({ lon: candidate.lon, lat: candidate.lat });
+  }, [onAimSet]);
+
+  const formatES = (es: number, ci95?: number) => {
+    if (ci95 !== undefined) {
+      return `${es.toFixed(3)} ± ${ci95.toFixed(3)}`;
+    }
+    return es.toFixed(3);
   };
 
-  const getOptimalDifference = (candidate: AimCandidate, optimal: AimCandidate) => {
-    const diff = candidate.es.mean - optimal.es.mean;
+  const getDifferenceFromBest = (candidate: Candidate, bestES: number) => {
+    const diff = candidate.es - bestES;
     return diff > 0 ? `+${diff.toFixed(3)}` : diff.toFixed(3);
   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg font-semibold text-secondary">Aim Optimizer</CardTitle>
+        <CardTitle className="text-lg font-semibold">Aim Optimizer</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Strategy Selection */}
+        <div className="space-y-2">
+          <Label htmlFor="strategy">Optimization Strategy</Label>
+          <Select value={strategy} onValueChange={(value: 'CEM' | 'RingGrid') => setStrategy(value)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select strategy" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="CEM">CEM (Cross-Entropy Method)</SelectItem>
+              <SelectItem value="RingGrid">Ring Grid (Coming Soon)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Advanced Parameters */}
+        <div className="space-y-3 text-sm">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label htmlFor="maxDistance">Max Distance (yds)</Label>
+              <Input 
+                id="maxDistance"
+                type="number" 
+                value={maxDistance} 
+                onChange={(e) => setMaxDistance(Number(e.target.value))}
+                min={50}
+                max={400}
+              />
+            </div>
+            <div>
+              <Label htmlFor="nEarly">Early Samples</Label>
+              <Input 
+                id="nEarly"
+                type="number" 
+                value={nEarly} 
+                onChange={(e) => setNEarly(Number(e.target.value))}
+                min={100}
+                max={500}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label htmlFor="nFinal">Final Samples</Label>
+              <Input 
+                id="nFinal"
+                type="number" 
+                value={nFinal} 
+                onChange={(e) => setNFinal(Number(e.target.value))}
+                min={300}
+                max={1000}
+              />
+            </div>
+            <div>
+              <Label htmlFor="ci95Stop">CI95 Threshold</Label>
+              <Input 
+                id="ci95Stop"
+                type="number" 
+                step="0.01"
+                value={ci95Stop} 
+                onChange={(e) => setCi95Stop(Number(e.target.value))}
+                min={0.01}
+                max={0.1}
+              />
+            </div>
+          </div>
+        </div>
+
         {/* Run/Cancel Button */}
         <Button
           className="w-full"
@@ -202,61 +296,81 @@ export default function OptimizerPanel({
           {isOptimizing ? (
             <>
               <i className="fas fa-stop mr-2"></i>
-              Cancel Optimizer
+              Cancel Optimization
             </>
           ) : (
             <>
               <i className="fas fa-play mr-2"></i>
-              Run Optimizer
+              Optimize
             </>
           )}
         </Button>
 
-        {/* Progress Bar */}
+        {/* Progress */}
         {isOptimizing && (
           <div className="space-y-2">
             <div className="flex justify-between items-center text-xs text-gray-600">
-              <span>Optimizing...</span>
-              <span>{Math.floor(optimizationProgress)}%</span>
+              <span>{progressNote || 'Running optimization...'}</span>
+              <span>{Math.floor(progress)}%</span>
             </div>
-            <Progress value={optimizationProgress} className="h-2" />
+            <Progress value={progress} className="h-2" />
+          </div>
+        )}
+
+        {/* Error Display */}
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-700">{error}</p>
           </div>
         )}
 
         {/* Results */}
         {candidates.length > 0 && (
           <div className="space-y-3">
-            <h4 className="text-sm font-medium text-gray-700">Optimization Results</h4>
+            <h4 className="text-sm font-medium text-gray-700">Ranked Candidates</h4>
+            <p className="text-xs text-gray-500">Click a candidate on the map or below to set as aim point</p>
             
             <div className="space-y-2">
               {candidates.map((candidate, index) => (
                 <div
                   key={index}
-                  className={`p-3 rounded-lg border ${
+                  className={`p-3 rounded-lg border cursor-pointer transition-colors ${
                     index === 0 
-                      ? 'bg-green-50 border-green-200' 
-                      : 'bg-slate-50 border-slate-200'
+                      ? 'bg-yellow-50 border-yellow-300 hover:bg-yellow-100' // Gold
+                      : index === 1
+                      ? 'bg-gray-50 border-gray-300 hover:bg-gray-100'      // Silver
+                      : index === 2
+                      ? 'bg-orange-50 border-orange-300 hover:bg-orange-100' // Bronze
+                      : 'bg-green-50 border-green-200 hover:bg-green-100'    // Good ES
                   }`}
+                  onClick={() => handleCandidateClick(candidate, index + 1)}
                 >
                   <div className="flex justify-between items-center mb-1">
                     <span className={`text-sm font-medium ${
-                      index === 0 ? 'text-green-800' : 'text-gray-700'
+                      index === 0 ? 'text-yellow-800' : 
+                      index === 1 ? 'text-gray-800' : 
+                      index === 2 ? 'text-orange-800' : 'text-green-800'
                     }`}>
-                      {index === 0 ? 'Optimal Aim' : `Alternative ${index}`}
+                      #{index + 1} {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '✨'}
                     </span>
                     <Badge 
                       variant="secondary" 
-                      className={index === 0 ? 'bg-green-200 text-green-800' : 'bg-gray-100 text-gray-600'}
+                      className={
+                        index === 0 ? 'bg-yellow-200 text-yellow-800' : 
+                        index === 1 ? 'bg-gray-200 text-gray-800' :
+                        index === 2 ? 'bg-orange-200 text-orange-800' : 'bg-green-200 text-green-800'
+                      }
                     >
-                      {index === 0 ? 'Best' : getOptimalDifference(candidate, candidates[0])}
+                      {index === 0 ? 'Best' : getDifferenceFromBest(candidate, candidates[0].es)}
                     </Badge>
                   </div>
                   <div className={`text-sm ${
-                    index === 0 ? 'text-green-700' : 'text-gray-600'
+                    index === 0 ? 'text-yellow-700' : 
+                    index === 1 ? 'text-gray-700' : 
+                    index === 2 ? 'text-orange-700' : 'text-green-700'
                   }`}>
-                    <p>ES: <span className="font-medium">{getESDisplay(candidate)}</span></p>
-                    <p>Distance: <span className="font-medium">{candidate.distanceYds} yds</span></p>
-                    <p>n: <span className="font-medium">{candidate.es.n.toLocaleString()}</span></p>
+                    <p>ES: <span className="font-medium">{formatES(candidate.es, candidate.esCi95)}</span></p>
+                    <p>Position: <span className="font-mono text-xs">{candidate.lat.toFixed(6)}, {candidate.lon.toFixed(6)}</span></p>
                   </div>
                 </div>
               ))}
@@ -264,16 +378,16 @@ export default function OptimizerPanel({
           </div>
         )}
 
-        {/* No results state */}
+        {/* Help Text */}
         {!canOptimize && (
           <div className="text-center py-4 text-sm text-gray-500">
-            Set start, pin, and skill level to run optimizer
+            Set start, pin, and load course mask to run optimizer
           </div>
         )}
 
         {candidates.length === 0 && !isOptimizing && canOptimize && (
           <div className="text-center py-4 text-sm text-gray-500">
-            Click "Run Optimizer" to find optimal aim points
+            Click "Optimize" to find the best aim points
           </div>
         )}
       </CardContent>
