@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PrepareState } from '../../lib/types';
 import { strokesEngine } from '../../lib/expectedStrokes';
+import { getValidatedElevations, calculatePlaysLikeDistance } from '@/lib/pointElevation';
 
 interface MetricsBarProps {
   state: PrepareState;
@@ -18,12 +19,15 @@ export default function MetricsBar({ state }: MetricsBarProps) {
     return R * c * 1.09361; // Convert to yards
   };
 
+
   // Calculate distances and metrics
   const metrics = useMemo(() => {
     if (!state.start || !state.pin) {
       return {
         totalDistance: 0,
         aimDistance: 0,
+        totalPlaysLike: { playsLike: 0, elevationChange: 0 },
+        aimPlaysLike: { playsLike: 0, elevationChange: 0 },
         expectedStrokes: 0,
         avgProximity: 0,
         conditionBreakdown: []
@@ -32,6 +36,19 @@ export default function MetricsBar({ state }: MetricsBarProps) {
 
     const totalDistance = calculateDistance(state.start, state.pin);
     const aimDistance = state.aim ? calculateDistance(state.start, state.aim) : totalDistance * 0.9;
+    
+    // Get validated point elevations (only if they match current points)
+    const elevations = getValidatedElevations({
+      start: state.start || undefined,
+      aim: state.aim || undefined,
+      pin: state.pin || undefined
+    });
+    
+    // Calculate plays-like distances with elevation using point elevation system
+    const totalPlaysLike = calculatePlaysLikeDistance(totalDistance, elevations.start, elevations.pin);
+    const aimPlaysLike = state.aim ? 
+      calculatePlaysLikeDistance(aimDistance, elevations.start, elevations.aim) :
+      { playsLike: Math.round(aimDistance), elevationChange: 0 };
     
     // Calculate Expected Strokes using the engine
     const expectedStrokes = strokesEngine.calculateExpectedStrokes(aimDistance, 'fairway');
@@ -50,6 +67,8 @@ export default function MetricsBar({ state }: MetricsBarProps) {
     return {
       totalDistance: Math.round(totalDistance),
       aimDistance: Math.round(aimDistance),
+      totalPlaysLike,
+      aimPlaysLike,
       expectedStrokes: expectedStrokes,
       avgProximity: avgProximity,
       conditionBreakdown
@@ -67,10 +86,42 @@ export default function MetricsBar({ state }: MetricsBarProps) {
           <div className="text-center">
             <p className="text-2xl font-bold text-primary">{metrics.totalDistance}</p>
             <p className="text-xs text-gray-600">Total Distance (yds)</p>
+            {/* Plays-like distance with elevation indicator */}
+            {state.start && state.pin && (
+              <div className="mt-1">
+                <div className="flex items-center justify-center space-x-1">
+                  {metrics.totalPlaysLike.elevationChange !== 0 && (
+                    <span className={`text-sm font-medium ${
+                      metrics.totalPlaysLike.elevationChange < 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {metrics.totalPlaysLike.elevationChange > 0 ? '+' : ''}{metrics.totalPlaysLike.elevationChange}
+                    </span>
+                  )}
+                  <span className="text-sm font-bold text-gray-700">{metrics.totalPlaysLike.playsLike}</span>
+                </div>
+                <p className="text-xs text-gray-600">Plays like (yds)</p>
+              </div>
+            )}
           </div>
           <div className="text-center">
             <p className="text-2xl font-bold text-accent">{metrics.aimDistance}</p>
             <p className="text-xs text-gray-600">Aim Distance (yds)</p>
+            {/* Plays-like distance with elevation indicator */}
+            {state.start && (state.aim || state.pin) && (
+              <div className="mt-1">
+                <div className="flex items-center justify-center space-x-1">
+                  {metrics.aimPlaysLike.elevationChange !== 0 && (
+                    <span className={`text-sm font-medium ${
+                      metrics.aimPlaysLike.elevationChange < 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {metrics.aimPlaysLike.elevationChange > 0 ? '+' : ''}{metrics.aimPlaysLike.elevationChange}
+                    </span>
+                  )}
+                  <span className="text-sm font-bold text-gray-700">{metrics.aimPlaysLike.playsLike}</span>
+                </div>
+                <p className="text-xs text-gray-600">Plays like (yds)</p>
+              </div>
+            )}
           </div>
           <div className="text-center">
             <p className="text-2xl font-bold text-orange-600">{metrics.expectedStrokes.toFixed(2)}</p>

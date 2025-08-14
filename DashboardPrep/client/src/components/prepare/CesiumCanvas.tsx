@@ -6,6 +6,7 @@ import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { PrepareState, LatLon } from '../../lib/types';
 import { colorizeMaskToCanvas, edgesMaskToCanvas, showRasterLayer, hideRasterLayer } from '@/lib/rasterOverlay';
+import { initPointElevation, samplePointElevation, clearElevations } from '@/lib/pointElevation';
 import type { MaskBuffer } from '@/lib/maskBuffer';
 import {
   initSamplesLayer,
@@ -41,6 +42,7 @@ interface CesiumCanvasProps {
   onESWorkerCall?: (params: any) => void;
   loadingCourse?: boolean;
   loadingProgress?: { stage: string; progress: number };
+  onViewerReady?: (viewer: any) => void;
 }
 
 // Helper function to calculate distance in yards
@@ -94,7 +96,8 @@ function CesiumCanvas({
   nSamples,
   onESWorkerCall,
   loadingCourse = false,
-  loadingProgress = { stage: '', progress: 0 }
+  loadingProgress = { stage: '', progress: 0 },
+  onViewerReady
 }: CesiumCanvasProps) {
   const viewerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -170,6 +173,14 @@ function CesiumCanvas({
         
         // Initialize SamplesLayer
         initSamplesLayer(viewer);
+        
+        // Initialize point elevation system
+        initPointElevation(viewer);
+        
+        // Notify parent component that viewer is ready
+        if (onViewerReady) {
+          onViewerReady(viewer);
+        }
         
         setViewerReady(true);
         initializingRef.current = false;
@@ -311,7 +322,38 @@ function CesiumCanvas({
     
   }, [state.start, state.aim, state.pin, state.skillPreset, samplesCount, showSamples, viewerReady, maskBuffer, onESWorkerCall]);
 
-  // Removed - using instant raster sampling instead
+  // Sample elevation when points change
+  useEffect(() => {
+    if (!viewerReady) return;
+
+    // Sample start point elevation
+    if (state.start) {
+      samplePointElevation(state.start, 'start').catch(console.warn);
+    }
+
+    // Sample aim point elevation  
+    if (state.aim) {
+      samplePointElevation(state.aim, 'aim').catch(console.warn);
+    }
+
+    // Sample pin point elevation
+    if (state.pin) {
+      samplePointElevation(state.pin, 'pin').catch(console.warn);
+    }
+  }, [state.start, state.aim, state.pin, viewerReady]);
+
+  // Clear elevations when switching courses or holes
+  useEffect(() => {
+    if (state.courseId) {
+      clearElevations();
+    }
+  }, [state.courseId]);
+
+  useEffect(() => {
+    if (state.holeId) {
+      clearElevations();
+    }
+  }, [state.holeId]);
 
   // Handle hole polyline display
   useEffect(() => {

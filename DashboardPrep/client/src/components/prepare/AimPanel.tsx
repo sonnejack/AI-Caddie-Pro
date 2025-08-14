@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PrepareState, LatLon, SKILL_PRESETS } from '../../lib/types';
+import { getPointElevation } from '@/lib/pointElevation';
 
 interface AimPanelProps {
   state: PrepareState;
@@ -13,9 +14,13 @@ interface AimPanelProps {
 }
 
 export default function AimPanel({ state, onPointSet, onSkillChange, onSelectionModeChange }: AimPanelProps) {
-  const formatCoordinate = (point: LatLon | null) => {
+  const formatCoordinate = (point: LatLon | null, pointType: 'start' | 'aim' | 'pin') => {
     if (!point) return 'Not set';
-    return `${point.lat.toFixed(4)}°N, ${Math.abs(point.lon).toFixed(4)}°${point.lon >= 0 ? 'E' : 'W'}`;
+    
+    const elevation = getPointElevation(pointType);
+    const elevationText = elevation !== undefined ? ` • ${elevation.toFixed(1)}m` : ' • sampling...';
+    
+    return `${point.lat.toFixed(4)}°N, ${Math.abs(point.lon).toFixed(4)}°${point.lon >= 0 ? 'E' : 'W'}${elevationText}`;
   };
 
   const getPointDescription = (type: 'start' | 'aim' | 'pin') => {
@@ -62,7 +67,7 @@ export default function AimPanel({ state, onPointSet, onSkillChange, onSelection
                 <div className="flex-1 min-w-0">
                   <span className="text-sm block">{getPointDescription('start')}</span>
                   <p className="text-xs text-gray-500 mt-1 truncate">
-                    {formatCoordinate(state.start)}
+                    {formatCoordinate(state.start, 'start')}
                   </p>
                 </div>
               </div>
@@ -87,7 +92,7 @@ export default function AimPanel({ state, onPointSet, onSkillChange, onSelection
                 <div className="flex-1 min-w-0">
                   <span className="text-sm block">{getPointDescription('aim')}</span>
                   <p className="text-xs text-gray-500 mt-1 truncate">
-                    {formatCoordinate(state.aim)}
+                    {formatCoordinate(state.aim, 'aim')}
                   </p>
                 </div>
               </div>
@@ -112,7 +117,7 @@ export default function AimPanel({ state, onPointSet, onSkillChange, onSelection
                 <div className="flex-1 min-w-0">
                   <span className="text-sm block">{getPointDescription('pin')}</span>
                   <p className="text-xs text-gray-500 mt-1 truncate">
-                    {formatCoordinate(state.pin)}
+                    {formatCoordinate(state.pin, 'pin')}
                   </p>
                 </div>
               </div>

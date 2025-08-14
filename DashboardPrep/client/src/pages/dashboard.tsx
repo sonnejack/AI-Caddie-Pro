@@ -17,6 +17,7 @@ import DispersionTab from '../components/placeholders/DispersionTab';
 import { usePrepareState } from '../hooks/usePrepareState';
 import { SKILL_PRESETS } from '@shared/types';
 import { createMaskFromFeatures } from '@/lib/maskPainter';
+import { samplePointElevation } from '@/lib/pointElevation';
 import type { ImportResponse } from '@shared/overpass';
 import type { LatLon, ESResult } from '@shared/types';
 
@@ -50,6 +51,7 @@ export default function Dashboard() {
     hazards: false,
     ob: false
   });
+  const [cesiumViewerRef, setCesiumViewerRef] = useState<any>(null);
   const {
     courseId, holeId, setCourseId, setHoleId,
     start, setStart, pin, setPin, aim, setAim,
@@ -209,6 +211,7 @@ export default function Dashboard() {
       // Store vector features for layer rendering
       setVectorFeatures(importData.features);
       
+      
       // Store hole polylines for navigation
       setHolePolylines(importData.holes);
       setHolePolylinesByRef(polylinesByRef);
@@ -267,16 +270,46 @@ export default function Dashboard() {
           onHoleChange={changeHole}
           holePolylinesByRef={holePolylinesByRef}
           holeFeatures={vectorFeatures}
-          onAutoNavigate={(points) => {
-            if (points.start) setStart(points.start);
-            if (points.aim) setAim(points.aim);
-            if (points.pin) setPin(points.pin);
+          onAutoNavigate={async (points) => {
+            console.log('🎯 Starting hole navigation with elevation sampling...');
+            
+            // Sample all elevations in parallel before setting points
+            const elevationPromises: Promise<any>[] = [];
+            
+            if (points.start) {
+              elevationPromises.push(samplePointElevation(points.start, 'start'));
+            }
+            if (points.aim) {
+              elevationPromises.push(samplePointElevation(points.aim, 'aim'));
+            }
+            if (points.pin) {
+              elevationPromises.push(samplePointElevation(points.pin, 'pin'));
+            }
+            
+            try {
+              // Wait for all elevation sampling to complete
+              await Promise.all(elevationPromises);
+              console.log('✅ All elevations sampled, setting points...');
+              
+              // Now set the points - UI will render with correct elevations
+              if (points.start) setStart(points.start);
+              if (points.aim) setAim(points.aim);
+              if (points.pin) setPin(points.pin);
+              
+            } catch (error) {
+              console.warn('⚠️ Some elevation sampling failed, setting points anyway:', error);
+              // Set points even if elevation sampling fails
+              if (points.start) setStart(points.start);
+              if (points.aim) setAim(points.aim);
+              if (points.pin) setPin(points.pin);
+            }
           }}
         />
         <VectorLayerPanel 
           onLayerToggle={handleVectorLayerToggle}
           availableFeatures={vectorFeatures}
         />
+        
         <ConditionDrawer />
       </div>
 
@@ -291,6 +324,7 @@ export default function Dashboard() {
           vectorLayerToggles={vectorLayerToggles}
           loadingCourse={loadingCourse}
           loadingProgress={loadingProgress}
+          onViewerReady={setCesiumViewerRef}
           onESWorkerCall={async (params) => {
             // Create worker and call it with the params
             try {
