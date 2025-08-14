@@ -1,14 +1,37 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PrepareState } from '../../lib/types';
 import { strokesEngine } from '../../lib/expectedStrokes';
-import { getValidatedElevations, calculatePlaysLikeDistance } from '@/lib/pointElevation';
+import { getValidatedElevations, calculatePlaysLikeDistance, subscribeToElevationUpdates } from '@/lib/pointElevation';
+
+interface ESResult {
+  mean: number;
+  ci95: number;
+  n: number;
+  pointsLL: Float64Array;
+  distsYds: Float32Array;
+  classes: Uint8Array;
+  samplePoints?: Array<{point: { lat: number; lon: number }, classId: number}>;
+  avgProximity?: number;
+  avgProximityInPlay?: number;
+}
 
 interface MetricsBarProps {
   state: PrepareState;
+  esResult?: ESResult;
 }
 
-export default function MetricsBar({ state }: MetricsBarProps) {
+export default function MetricsBar({ state, esResult }: MetricsBarProps) {
+  // Force re-render when elevation data changes
+  const [elevationUpdateTrigger, setElevationUpdateTrigger] = useState(0);
+  
+  useEffect(() => {
+    const unsubscribe = subscribeToElevationUpdates(() => {
+      setElevationUpdateTrigger(prev => prev + 1);
+    });
+    return unsubscribe;
+  }, []);
+
   // Helper function to calculate distance between two points
   const calculateDistance = (p1: { lat: number; lon: number }, p2: { lat: number; lon: number }) => {
     const R = 6371000; // Earth radius in meters
@@ -17,6 +40,51 @@ export default function MetricsBar({ state }: MetricsBarProps) {
     const a = Math.sin(dLat/2) ** 2 + Math.cos(p1.lat * Math.PI/180) * Math.cos(p2.lat * Math.PI/180) * Math.sin(dLon/2) ** 2;
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     return R * c * 1.09361; // Convert to yards
+  };
+
+  // Calculate condition breakdown from ES result
+  const calculateConditionBreakdown = (esResult?: ESResult) => {
+    if (!esResult || !esResult.classes || esResult.classes.length === 0) {
+      // Fallback to mock data if no ES result
+      return [
+        { condition: 'Fairway', percentage: 65, count: 0, color: 'bg-green-500' },
+        { condition: 'Rough', percentage: 25, count: 0, color: 'bg-yellow-600' },
+        { condition: 'Bunker', percentage: 8, count: 0, color: 'bg-yellow-300' },
+        { condition: 'Water', percentage: 2, count: 0, color: 'bg-blue-500' },
+      ];
+    }
+
+    // Count classes from ES result
+    const counts: Record<number, number> = {};
+    for (let i = 0; i < esResult.classes.length; i++) {
+      const classId = esResult.classes[i];
+      counts[classId] = (counts[classId] || 0) + 1;
+    }
+
+    const totalSamples = esResult.classes.length;
+    
+    // Map class IDs to conditions with updated colors
+    const conditionMapping = [
+      { classId: 6, condition: 'Fairway', color: 'bg-lime-500' },
+      { classId: 5, condition: 'Green', color: 'bg-green-400' },
+      { classId: 8, condition: 'Rough', color: 'bg-yellow-600' },
+      { classId: 4, condition: 'Bunker', color: 'bg-yellow-300' },
+      { classId: 2, condition: 'Water', color: 'bg-blue-500' },
+      { classId: 3, condition: 'Hazard', color: 'bg-red-500' },
+      { classId: 1, condition: 'OB', color: 'bg-gray-400' },
+      { classId: 7, condition: 'Recovery', color: 'bg-purple-500' },
+      { classId: 9, condition: 'Tee', color: 'bg-cyan-400' },
+      { classId: 0, condition: 'Unknown', color: 'bg-gray-500' },
+    ];
+
+    return conditionMapping
+      .map(({ classId, condition, color }) => {
+        const count = counts[classId] || 0;
+        const percentage = totalSamples > 0 ? Math.round((count / totalSamples) * 100) : 0;
+        return { condition, percentage, count, color };
+      })
+      .filter(item => item.count > 0) // Only show conditions that have samples
+      .sort((a, b) => b.percentage - a.percentage); // Sort by percentage descending
   };
 
 
@@ -53,16 +121,11 @@ export default function MetricsBar({ state }: MetricsBarProps) {
     // Calculate Expected Strokes using the engine
     const expectedStrokes = strokesEngine.calculateExpectedStrokes(aimDistance, 'fairway');
     
-    // Mock proximity calculation (in real implementation, this would come from dispersion analysis)
-    const avgProximity = 8 + Math.random() * 8;
+    // Use proximity from ES result if available, otherwise mock calculation
+    const avgProximity = esResult?.avgProximity || (8 + Math.random() * 8);
 
-    // Mock condition breakdown (in real implementation, this would come from mask analysis)
-    const conditionBreakdown = [
-      { condition: 'Fairway', percentage: 65, color: 'golf-condition-fairway' },
-      { condition: 'Rough', percentage: 25, color: 'golf-condition-rough' },
-      { condition: 'Bunker', percentage: 8, color: 'golf-condition-sand' },
-      { condition: 'Water', percentage: 2, color: 'golf-condition-water' },
-    ];
+    // Calculate condition breakdown from ES result
+    const conditionBreakdown = calculateConditionBreakdown(esResult);
 
     return {
       totalDistance: Math.round(totalDistance),
@@ -73,7 +136,7 @@ export default function MetricsBar({ state }: MetricsBarProps) {
       avgProximity: avgProximity,
       conditionBreakdown
     };
-  }, [state.start, state.pin, state.aim]);
+  }, [state.start, state.pin, state.aim, elevationUpdateTrigger, esResult]);
 
   return (
     <Card className="mt-6">
@@ -142,7 +205,7 @@ export default function MetricsBar({ state }: MetricsBarProps) {
                 <div key={index} className="flex items-center space-x-2">
                   <div className={`w-3 h-3 rounded ${condition.color}`} />
                   <span className="text-sm text-gray-600">
-                    {condition.condition} {condition.percentage}%
+                    {condition.condition} {condition.percentage}% ({condition.count})
                   </span>
                 </div>
               ))}

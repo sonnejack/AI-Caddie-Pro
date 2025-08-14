@@ -78,7 +78,7 @@ export async function bakeHoleElevation(
   console.log(`📊 Coarse grid: ${coarseGrid.meta.width}×${coarseGrid.meta.height} (${coarseGrid.data.length} points)`);
   console.log(`📊 Fine patches: ${patches.length} patches (${patches.reduce((sum, p) => sum + p.data.length, 0)} points)`);
 
-  return new GridHeightProvider(gridData);
+  return new GridHeightProvider();
 }
 
 /**

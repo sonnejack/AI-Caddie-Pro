@@ -1,25 +1,22 @@
 // client/src/components/prepare/SamplesLayer.ts
-// Singleton Samples Layer for Cesium – PointPrimitiveCollection pool
+import { HeightProvider, CesiumHeightProvider, SampleReq } from "@/lib/heightProvider";
 
-// Simplified SamplesLayer without height provider complexity
-
-declare const window: any;
-
-type Maybe<T> = T | null;
-
-let viewerRef: Maybe<any> = null;
-let collection: Maybe<any> = null;
+let viewerRef: any = null;
+let collection: any = null;
 let pool: any[] = [];
 let capacity = 0;
 let initialized = false;
 
-// Simplified without height provider complexity
+let heightProvider: HeightProvider | null = null;
 let generation = 0;
+let pending: SampleReq[] = [];
+let rafId: number | null = null;
+// Keep last lon/lat for async refinement
+let pointsScratch = new Float64Array(0);
 
-const getCesium = () => (window as any).Cesium;
+function getCesium(): any { return (window as any).Cesium; }
+
 const PREVIEW_COLOR = () => getCesium().Color.fromBytes(153, 153, 153, 255); // grey
-
-// Removed complex height provider scheduling
 
 // Class mapping -> colors
 // 0 UNKNOWN, 1 OB, 2 WATER, 3 HAZARD, 4 BUNKER, 5 GREEN, 6 FAIRWAY, 7 RECOVERY, 8 ROUGH, 9 TEE(optional)
@@ -43,12 +40,11 @@ function colorForClass(cls: number): any {
 function ensureCapacity(minCapacity: number) {
   if (!viewerRef || !collection) return;
   if (minCapacity <= capacity) return;
-
   const Cesium = getCesium();
   const toAdd = minCapacity - capacity;
   for (let i = 0; i < toAdd; i++) {
     const p = collection.add({
-      position: Cesium.Cartesian3.fromDegrees(0, 0, 0),
+      position: Cesium.Cartesian3.fromDegrees(0, 0),
       pixelSize: 2,
       color: PREVIEW_COLOR(),
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -66,18 +62,52 @@ export function initSamplesLayer(viewer: any, initialCapacity = 1200) {
   collection = new Cesium.PointPrimitiveCollection();
   viewer.scene.primitives.add(collection);
 
-  // ensure points don't get hidden
+  // Make sure terrain doesn't hide tiny points before precise heights arrive
   viewer.scene.globe.depthTestAgainstTerrain = false;
+
+  // Default height provider = Cesium terrain
+  heightProvider = new CesiumHeightProvider(viewerRef);
 
   ensureCapacity(initialCapacity);
   initialized = true;
+}
+
+export function destroySamplesLayer() {
+  if (!viewerRef) return;
+  if (collection) {
+    viewerRef.scene.primitives.remove(collection);
+    collection = null;
+  }
+  pool = [];
+  capacity = 0;
+  initialized = false;
+  heightProvider?.dispose?.();
+  heightProvider = null;
 }
 
 export function showSamples(flag: boolean) {
   if (collection) collection.show = flag;
 }
 
-// Removed height provider complexity
+function scheduleAsyncRefine() {
+  if (rafId != null) return;
+  rafId = requestAnimationFrame(() => {
+    rafId = null;
+    const batch = pending;
+    pending = [];
+    if (!heightProvider || batch.length === 0) return;
+
+    heightProvider.sampleHeightsAsync(batch, (idx, h, gen) => {
+      if (gen !== generation) return;       // stale
+      if (idx >= capacity) return;
+      const Cesium = getCesium();
+      const lon = pointsScratch[2 * idx];
+      const lat = pointsScratch[2 * idx + 1];
+      // Refined exact height + 0.05 m lift
+      pool[idx].position = Cesium.Cartesian3.fromDegrees(lon, lat, (h || 0) + 0.05);
+    });
+  });
+}
 
 export function setSamples(pointsLL: Float64Array, classes?: Uint8Array) {
   if (!viewerRef) return;
@@ -86,38 +116,34 @@ export function setSamples(pointsLL: Float64Array, classes?: Uint8Array) {
   const n = Math.floor(pointsLL.length / 2);
   if (n <= 0) { clearSamplesLayer(); return; }
 
+  // New generation; cancel pending
   generation++;
+  pending = [];
+  pointsScratch = pointsLL; // hold for async update
+
   ensureCapacity(n);
 
+  // Always start with basic ground level placement and queue ALL points for precise refinement
   let idx = 0;
   for (; idx < n; idx++) {
     const lon = pointsLL[2 * idx];
     const lat = pointsLL[2 * idx + 1];
-    const point = pool[idx];
+    const p = pool[idx];
 
-    // Simple positioning at ground level
-    point.position = Cesium.Cartesian3.fromDegrees(lon, lat, 0.5);
-    point.color = classes ? colorForClass(classes[idx]) : PREVIEW_COLOR();
-    point.show = true;
+    // Start with ground level + lift (no sync height - just get them visible immediately)
+    p.position = Cesium.Cartesian3.fromDegrees(lon, lat, 0.05);
+    p.color = classes ? colorForClass(classes[idx]) : PREVIEW_COLOR();
+    p.show = true;
+
+    // Queue ALL points for precise batch refinement
+    pending.push({ idx, lon, lat, gen: generation });
   }
   for (; idx < capacity; idx++) pool[idx].show = false;
+
+  // Always schedule async refinement for all points
+  scheduleAsyncRefine();
 }
 
 export function clearSamplesLayer() {
-  if (!collection) return;
   for (let i = 0; i < capacity; i++) pool[i].show = false;
-}
-
-export function destroySamplesLayer() {
-  if (viewerRef && collection) {
-    try {
-      viewerRef.scene.primitives.remove(collection);
-    } catch { /* ignore */ }
-  }
-  collection = null;
-  viewerRef = null;
-  pool = [];
-  capacity = 0;
-  initialized = false;
-  generation = 0;
 }

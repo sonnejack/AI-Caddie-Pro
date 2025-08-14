@@ -222,27 +222,127 @@ export function pointAlongPolylineYds(
 }
 
 /**
- * Calculate bearing in degrees from point A to point B
+ * Great-circle bearing in degrees from (lon1,lat1) to (lon2,lat2)
  */
-export function bearingDeg(a: { lon: number; lat: number }, b: { lon: number; lat: number }): number {
+export function bearingDeg(lon1:number, lat1:number, lon2:number, lat2:number): number {
+  const λ1 = lon1 * Math.PI/180, φ1 = lat1 * Math.PI/180;
+  const λ2 = lon2 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+  const y = Math.sin(λ2-λ1) * Math.cos(φ2);
+  const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(λ2-λ1);
+  const θ = Math.atan2(y, x) * 180/Math.PI;
+  return (θ + 360) % 360;
+}
+
+/**
+ * Move from lon/lat by distance (m) along bearing (deg) -> new lon/lat
+ */
+export function offsetLL(lon:number, lat:number, distMeters:number, bearingDeg:number) {
+  const R = 6378137; // WGS84
+  const br = bearingDeg * Math.PI/180;
+  const φ1 = lat * Math.PI/180, λ1 = lon * Math.PI/180;
+  const δ = distMeters / R;
+  const φ2 = Math.asin(Math.sin(φ1)*Math.cos(δ) + Math.cos(φ1)*Math.sin(δ)*Math.cos(br));
+  const λ2 = λ1 + Math.atan2(Math.sin(br)*Math.sin(δ)*Math.cos(φ1),
+                              Math.cos(δ) - Math.sin(φ1)*Math.sin(φ2));
+  return { lon: λ2*180/Math.PI, lat: φ2*180/Math.PI };
+}
+
+/**
+ * Midpoint along a linestring by cumulative distance
+ */
+export function midpointAlong(poly: Array<{lon:number;lat:number}>): {lon:number;lat:number} {
+  if (poly.length < 2) return poly[0] || { lon: 0, lat: 0 };
+  
+  // Calculate total length in meters
+  let totalLength = 0;
+  const segmentLengths: number[] = [];
+  
+  for (let i = 0; i < poly.length - 1; i++) {
+    const segLen = distanceMeters(poly[i], poly[i + 1]);
+    segmentLengths.push(segLen);
+    totalLength += segLen;
+  }
+  
+  // Find midpoint distance
+  const halfLength = totalLength / 2;
+  let accumulatedLength = 0;
+  
+  for (let i = 0; i < segmentLengths.length; i++) {
+    const segmentLength = segmentLengths[i];
+    
+    if (accumulatedLength + segmentLength >= halfLength) {
+      // Midpoint is in this segment
+      const remainingDistance = halfLength - accumulatedLength;
+      const ratio = remainingDistance / segmentLength;
+      
+      const start = poly[i];
+      const end = poly[i + 1];
+      
+      return {
+        lon: start.lon + (end.lon - start.lon) * ratio,
+        lat: start.lat + (end.lat - start.lat) * ratio
+      };
+    }
+    
+    accumulatedLength += segmentLength;
+  }
+  
+  // Fallback to last point
+  return poly[poly.length - 1];
+}
+
+/**
+ * Hole length in meters
+ */
+export function holeLengthMeters(poly: Array<{lon:number;lat:number}>): number {
+  if (poly.length < 2) return 0;
+  
+  let totalLength = 0;
+  for (let i = 0; i < poly.length - 1; i++) {
+    totalLength += distanceMeters(poly[i], poly[i + 1]);
+  }
+  
+  return totalLength;
+}
+
+/**
+ * Largest green centroid (already available in your green matching)
+ */
+export function greenCentroid(green: GeoJSON.Polygon|GeoJSON.MultiPolygon): {lon:number;lat:number} {
+  return centroidOfPolygon(green);
+}
+
+/**
+ * Estimate green radius in meters from polygon area
+ */
+export function greenRadiusMeters(green: GeoJSON.Polygon|GeoJSON.MultiPolygon): number {
+  const area = calculatePolygonArea(green);
+  // Assume circular area: A = πr², so r = √(A/π)
+  // Convert from degree² to approximate meters² using rough conversion
+  const areaM2 = area * 111320 * 111320; // very rough conversion
+  const radius = Math.sqrt(areaM2 / Math.PI);
+  
+  // Clamp to reasonable green size (5-50 meters)
+  return Math.min(50, Math.max(5, radius));
+}
+
+/**
+ * Calculate distance between two points in meters using Cesium geodesic
+ */
+function distanceMeters(a: { lon: number; lat: number }, b: { lon: number; lat: number }): number {
   const geodesic = new Cesium.EllipsoidGeodesic(
     Cesium.Cartographic.fromDegrees(a.lon, a.lat),
     Cesium.Cartographic.fromDegrees(b.lon, b.lat)
   );
   
-  return Cesium.Math.toDegrees(geodesic.startHeading);
+  return geodesic.surfaceDistance; // meters
 }
 
 /**
  * Calculate distance between two points in yards using Cesium geodesic
  */
 function distanceYards(a: { lon: number; lat: number }, b: { lon: number; lat: number }): number {
-  const geodesic = new Cesium.EllipsoidGeodesic(
-    Cesium.Cartographic.fromDegrees(a.lon, a.lat),
-    Cesium.Cartographic.fromDegrees(b.lon, b.lat)
-  );
-  
-  return geodesic.surfaceDistance * 1.09361; // meters to yards
+  return distanceMeters(a, b) * 1.09361; // meters to yards
 }
 
 /**
@@ -265,6 +365,58 @@ function minDistanceToPolygonCentroids(
   }
   
   return minDistance;
+}
+
+/**
+ * Check if a point is inside a polygon using ray casting algorithm
+ */
+function pointInPolygon(point: { lon: number; lat: number }, polygon: number[][]): boolean {
+  const x = point.lon;
+  const y = point.lat;
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i][0];
+    const yi = polygon[i][1];
+    const xj = polygon[j][0];
+    const yj = polygon[j][1];
+
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+/**
+ * Find which green polygon contains the given point
+ */
+export function findGreenContainingPoint(
+  point: { lon: number; lat: number },
+  greensFC: GeoJSON.FeatureCollection
+): GeoJSON.Polygon | GeoJSON.MultiPolygon | null {
+  if (!greensFC.features || greensFC.features.length === 0) return null;
+
+  for (const feature of greensFC.features) {
+    if (feature.geometry.type === 'Polygon') {
+      const polygon = feature.geometry as GeoJSON.Polygon;
+      // Check the outer ring
+      if (pointInPolygon(point, polygon.coordinates[0])) {
+        return polygon;
+      }
+    } else if (feature.geometry.type === 'MultiPolygon') {
+      const multiPolygon = feature.geometry as GeoJSON.MultiPolygon;
+      for (const polygonCoords of multiPolygon.coordinates) {
+        // Check the outer ring of each polygon
+        if (pointInPolygon(point, polygonCoords[0])) {
+          return multiPolygon;
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -340,8 +492,8 @@ export function assignEndpoints(
       greenEndpoint = e1;
     } else {
       // Final tie-breaker: bearing to primary green
-      const e0_bearing = Math.abs(bearingDeg(e0, primaryGreenCentroid));
-      const e1_bearing = Math.abs(bearingDeg(e1, primaryGreenCentroid));
+      const e0_bearing = Math.abs(bearingDeg(e0.lon, e0.lat, primaryGreenCentroid.lon, primaryGreenCentroid.lat));
+      const e1_bearing = Math.abs(bearingDeg(e1.lon, e1.lat, primaryGreenCentroid.lon, primaryGreenCentroid.lat));
       
       if (e0_bearing < e1_bearing) {
         teeEndpoint = e1;

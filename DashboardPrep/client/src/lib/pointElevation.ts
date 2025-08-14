@@ -20,6 +20,26 @@ let currentElevations: PointElevations = {};
 let elevationPoints: { start?: LatLon; aim?: LatLon; pin?: LatLon } = {};
 let cesiumViewer: any = null;
 
+// Simple callback system for elevation updates
+let elevationUpdateCallbacks: (() => void)[] = [];
+
+export function subscribeToElevationUpdates(callback: () => void): () => void {
+  elevationUpdateCallbacks.push(callback);
+  return () => {
+    elevationUpdateCallbacks = elevationUpdateCallbacks.filter(cb => cb !== callback);
+  };
+}
+
+function notifyElevationUpdate() {
+  elevationUpdateCallbacks.forEach(callback => {
+    try {
+      callback();
+    } catch (error) {
+      console.warn('Error in elevation update callback:', error);
+    }
+  });
+}
+
 /**
  * Initialize the elevation sampling system with Cesium viewer
  */
@@ -57,6 +77,9 @@ export async function samplePointElevation(
     // Store the elevation and the point it was sampled for
     currentElevations[pointType] = elevation;
     elevationPoints[pointType] = { ...point };
+    
+    // Notify subscribers that elevation data has been updated
+    notifyElevationUpdate();
     
     console.log(`✅ ${pointType} elevation: ${elevation.toFixed(2)}m for point (${point.lat.toFixed(6)}, ${point.lon.toFixed(6)})`);
     return elevation;
@@ -171,6 +194,7 @@ export function clearElevations() {
   const prevElevations = { ...currentElevations };
   currentElevations = {};
   elevationPoints = {};
+  notifyElevationUpdate();
   console.log('📏 Point elevations cleared', { previous: prevElevations, now: currentElevations });
 }
 

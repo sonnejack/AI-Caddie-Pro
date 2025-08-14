@@ -18,6 +18,16 @@ import {
 import { showHolePolyline, hideHolePolyline } from './HolePolylineLayer';
 import { showVectorFeatures, clearVectorFeatures } from './VectorFeatureLayers';
 import { generateEllipseSamples } from '@/lib/sampling';
+import { 
+  bearingDeg, 
+  offsetLL, 
+  midpointAlong, 
+  holeLengthMeters, 
+  greenCentroid, 
+  greenRadiusMeters,
+  centroidOfPolygon,
+  findGreenContainingPoint
+} from '@/lib/holeGeom';
 
 interface ESResult {
   mean: number;
@@ -42,7 +52,7 @@ interface CesiumCanvasProps {
   onESWorkerCall?: (params: any) => void;
   loadingCourse?: boolean;
   loadingProgress?: { stage: string; progress: number };
-  onViewerReady?: (viewer: any) => void;
+  onViewerReady?: (viewer: any & { flyTeeView?: Function; flyFairwayView?: Function; flyGreenView?: Function }) => void;
 }
 
 // Helper function to calculate distance in yards
@@ -121,6 +131,124 @@ function CesiumCanvas({
   selectionModeRef.current = state.selectionMode;
   onPointSetRef.current = onPointSet;
 
+  // Camera helper functions
+  type LL = { lon: number; lat: number };
+  
+  function groundHeightFast(lon: number, lat: number): number {
+    // If a baked GridHeightProvider is active, use it here:
+    // const h = heightProvider?.getHeightSync({lon,lat});
+    // if (Number.isFinite(h)) return h!;
+    if (!viewerRef.current) return 0;
+    const h = viewerRef.current.scene.globe.getHeight(
+      (window as any).Cesium.Cartographic.fromDegrees(lon, lat)
+    );
+    return Number.isFinite(h) ? (h as number) : 0;
+  }
+
+  function flyToLLH(
+    target: LL & { hMeters: number },
+    headingDeg: number,
+    pitchDeg: number,
+    duration = 0.35
+  ) {
+    if (!viewerRef.current) return;
+    const Cesium = (window as any).Cesium;
+    const dest = Cesium.Cartesian3.fromDegrees(
+      target.lon, 
+      target.lat, 
+      target.hMeters + 0.05
+    );
+    viewerRef.current.camera.flyTo({
+      destination: dest,
+      orientation: {
+        heading: Cesium.Math.toRadians(headingDeg),
+        pitch: Cesium.Math.toRadians(pitchDeg),
+        roll: 0
+      },
+      duration
+    });
+  }
+
+  // Exported camera view functions
+  const flyTeeView = useCallback((hole: any) => {
+    if (!viewerRef.current || !hole.polyline) return;
+    
+    // Use the assigned endpoints for consistent direction
+    const tee = hole.teeLL || hole.polyline.positions[0];
+    const green = hole.greenLL || hole.greenCentroid;
+    if (!green) return;
+
+    const hdg = bearingDeg(tee.lon, tee.lat, green.lon, green.lat);
+    const L = holeLengthMeters(hole.polyline.positions);
+
+    const back = Math.min(60, Math.max(15, 0.06 * L));
+    const camLL = offsetLL(tee.lon, tee.lat, back, (hdg + 180) % 360);
+    const h = Math.min(90, Math.max(25, 0.12 * L)) + groundHeightFast(camLL.lon, camLL.lat);
+
+    flyToLLH({ ...camLL, hMeters: h }, hdg, -20, 0.35);
+  }, [viewerRef.current]);
+
+  const flyFairwayView = useCallback((hole: any) => {
+    if (!viewerRef.current || !hole.polyline) return;
+    
+    const mid = midpointAlong(hole.polyline.positions);
+    // Use the assigned green endpoint for consistent direction
+    const green = hole.greenLL || hole.greenCentroid;
+    if (!green) return;
+
+    const hdg = bearingDeg(mid.lon, mid.lat, green.lon, green.lat);
+    const L = holeLengthMeters(hole.polyline.positions);
+
+    const h = Math.min(70, Math.max(20, 0.08 * L)) + groundHeightFast(mid.lon, mid.lat);
+    flyToLLH({ lon: mid.lon, lat: mid.lat, hMeters: h }, hdg, -15, 0.35);
+  }, [viewerRef.current]);
+
+  const flyGreenView = useCallback((hole: any, pinGreen?: any) => {
+    if (!viewerRef.current || !hole.polyline) return;
+    
+    // Use the specific green containing the pin if provided, otherwise use primary green
+    const targetGreen = pinGreen || hole.primaryGreen;
+    if (!targetGreen) return;
+    
+    const tee = hole.polyline.positions[0];
+    const green = centroidOfPolygon(targetGreen);
+
+    const hdg = bearingDeg(tee.lon, tee.lat, green.lon, green.lat); // tee->green so front (green->tee) is bottom
+    const r = greenRadiusMeters(targetGreen);
+    const h = Math.min(80, Math.max(30, 3 * r)) + groundHeightFast(green.lon, green.lat);
+
+    flyToLLH({ lon: green.lon, lat: green.lat, hMeters: h }, hdg, -89.5, 0.35);
+  }, [viewerRef.current]);
+
+  // Handle camera preset buttons
+  const handleCameraPreset = (preset: string) => {
+    if (!holePolyline || !holeEndpoints) {
+      console.warn('No hole data available for camera preset:', preset);
+      return;
+    }
+
+    const hole = {
+      polyline: holePolyline,
+      greenCentroid: holeEndpoints.greenLL,
+      primaryGreen: holeEndpoints.primaryGreen
+    };
+
+    switch (preset) {
+      case 'tee':
+        flyTeeView(hole);
+        break;
+      case 'overview':
+      case 'fairway':
+        flyFairwayView(hole);
+        break;
+      case 'green':
+        flyGreenView(hole);
+        break;
+      default:
+        console.warn('Unknown camera preset:', preset);
+    }
+  };
+
   // Initialize Cesium viewer
   useEffect(() => {
     if (!containerRef.current || viewerRef.current || initializingRef.current) return;
@@ -179,7 +307,12 @@ function CesiumCanvas({
         
         // Notify parent component that viewer is ready
         if (onViewerReady) {
-          onViewerReady(viewer);
+          // Attach camera functions to the viewer object for external access
+          const viewerWithCameraFunctions = viewer;
+          viewerWithCameraFunctions.flyTeeView = flyTeeView;
+          viewerWithCameraFunctions.flyFairwayView = flyFairwayView;
+          viewerWithCameraFunctions.flyGreenView = flyGreenView;
+          onViewerReady(viewerWithCameraFunctions);
         }
         
         setViewerReady(true);
@@ -765,29 +898,6 @@ function CesiumCanvas({
     };
   }, [viewerReady]); // Only depend on viewerReady - refs handle the rest
 
-  const handleCameraPreset = (preset: 'tee' | 'green' | 'overview') => {
-    if (!viewerRef.current) return;
-
-    const viewer = viewerRef.current;
-    let destination, orientation;
-
-    switch (preset) {
-      case 'tee':
-        destination = (window as any).Cesium.Cartesian3.fromDegrees(-2.82, 56.348, 50);
-        orientation = { heading: 0, pitch: -0.2, roll: 0 };
-        break;
-      case 'green':
-        destination = (window as any).Cesium.Cartesian3.fromDegrees(-2.8185, 56.3495, 30);
-        orientation = { heading: Math.PI, pitch: -0.3, roll: 0 };
-        break;
-      case 'overview':
-        destination = (window as any).Cesium.Cartesian3.fromDegrees(-2.8192, 56.3487, 400);
-        orientation = { heading: 0, pitch: -0.7, roll: 0 };
-        break;
-    }
-
-    viewer.camera.flyTo({ destination, orientation, duration: 2 });
-  };
 
   // Utility functions
   function calculateDistance(p1: LatLon, p2: LatLon): number {

@@ -270,6 +270,8 @@ export default function Dashboard() {
           onHoleChange={changeHole}
           holePolylinesByRef={holePolylinesByRef}
           holeFeatures={vectorFeatures}
+          cesiumViewer={cesiumViewerRef}
+          pinLocation={pin}
           onAutoNavigate={async (points) => {
             console.log('🎯 Starting hole navigation with elevation sampling...');
             
@@ -355,7 +357,7 @@ export default function Dashboard() {
             }
           }}
         />
-        <MetricsBar state={state} />
+        <MetricsBar state={state} esResult={esResult} />
       </div>
 
       {/* Right Sidebar */}

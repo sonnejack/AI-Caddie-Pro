@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ interface CoursePickerProps {
 
 export default function CoursePicker({ selectedCourseId, onCourseSelect }: CoursePickerProps) {
   const [mode, setMode] = useState<'curated' | 'search'>('curated');
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const { data: courses, isLoading, error } = useQuery<CuratedCourse[]>({
     queryKey: ['/curated.json'],
@@ -31,6 +32,16 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
     enabled: mode === 'curated',
   });
 
+  // Find selected course name for collapsed state
+  const selectedCourse = courses?.find(course => course.id === selectedCourseId);
+
+  // Auto-collapse when a course is first selected
+  useEffect(() => {
+    if (selectedCourseId && !isCollapsed) {
+      setIsCollapsed(true);
+    }
+  }, [selectedCourseId]);
+
   if (error) {
     return (
       <Card>
@@ -43,10 +54,28 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-lg font-semibold text-secondary">Select Course</CardTitle>
+      <CardHeader 
+        className="cursor-pointer hover:bg-slate-50"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg font-semibold text-secondary">
+            {selectedCourseId && isCollapsed ? (selectedCourse?.name || 'Loading...') : 'Select Course'}
+          </CardTitle>
+          <Button 
+            variant="ghost" 
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsCollapsed(!isCollapsed);
+            }}
+          >
+            <i className={`fas ${isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'} text-sm`}></i>
+          </Button>
+        </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      {!isCollapsed && (
+        <CardContent className="space-y-4">
         {/* Mode Toggle */}
         <div className="flex bg-slate-100 rounded-lg p-1">
           <Button
@@ -102,7 +131,6 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="font-medium text-secondary text-sm">{course.name}</h4>
-                    <p className="text-xs text-gray-500">{course.osm.seeds.length} OSM seed(s)</p>
                   </div>
                   <Badge variant="secondary" className="bg-blue-100 text-blue-700">
                     Curated
@@ -112,7 +140,8 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
             ))
           )}
         </div>
-      </CardContent>
+        </CardContent>
+      )}
     </Card>
   );
 }

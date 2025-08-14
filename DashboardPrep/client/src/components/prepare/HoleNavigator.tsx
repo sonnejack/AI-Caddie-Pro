@@ -11,6 +11,8 @@ import {
   centroidOfPolygon,
   pointAlongPolylineYds,
   bearingDeg,
+  offsetLL,
+  findGreenContainingPoint,
   HolePolyline,
   Endpoints 
 } from '@/lib/holeGeom';
@@ -22,6 +24,8 @@ interface HoleNavigatorProps {
   onAutoNavigate?: (points: { start: LatLon | null, aim: LatLon | null, pin: LatLon | null }) => void;
   holePolylinesByRef?: Map<string, any>; // Real hole polylines from OSM by ref
   holeFeatures?: any; // All course features (greens, tees, etc.)
+  cesiumViewer?: any; // Viewer with camera functions
+  pinLocation?: LatLon | null; // Current pin location
 }
 
 export default function HoleNavigator({ 
@@ -29,9 +33,66 @@ export default function HoleNavigator({
   onHoleChange, 
   onAutoNavigate,
   holePolylinesByRef,
-  holeFeatures
+  holeFeatures,
+  cesiumViewer,
+  pinLocation
 }: HoleNavigatorProps) {
   const [navigationError, setNavigationError] = useState<string | null>(null);
+  
+  // Camera view helpers
+  const handleCameraView = (view: 'tee' | 'fairway' | 'green') => {
+    if (!cesiumViewer || !holePolylinesByRef || !holeFeatures) {
+      console.warn('Missing data for camera view:', { cesiumViewer: !!cesiumViewer, holePolylinesByRef: !!holePolylinesByRef, holeFeatures: !!holeFeatures });
+      return;
+    }
+
+    const holeRef = currentHole.toString();
+    if (!holePolylinesByRef.has(holeRef)) {
+      console.warn('No polyline data for hole:', holeRef);
+      return;
+    }
+
+    try {
+      const polylineData = holePolylinesByRef.get(holeRef);
+      const holePolyline = {
+        holeId: holeRef,
+        positions: polylineData.positions,
+        ref: holeRef
+      };
+
+      // Assign endpoints to get green centroid
+      const endpoints = assignEndpoints(holePolyline, holeFeatures.tees, holeFeatures.greens);
+      
+      const hole = {
+        polyline: holePolyline,
+        teeLL: endpoints.teeLL,
+        greenLL: endpoints.greenLL,
+        greenCentroid: endpoints.greenLL, // Use the actual green endpoint, not centroid of largest green
+        primaryGreen: endpoints.primaryGreen
+      };
+
+      switch (view) {
+        case 'tee':
+          if (cesiumViewer.flyTeeView) cesiumViewer.flyTeeView(hole);
+          break;
+        case 'fairway':
+          if (cesiumViewer.flyFairwayView) cesiumViewer.flyFairwayView(hole);
+          break;
+        case 'green':
+          if (cesiumViewer.flyGreenView) {
+            // Find the specific green that contains the pin location
+            let pinGreen = null;
+            if (pinLocation && holeFeatures?.greens) {
+              pinGreen = findGreenContainingPoint(pinLocation, holeFeatures.greens);
+            }
+            cesiumViewer.flyGreenView(hole, pinGreen);
+          }
+          break;
+      }
+    } catch (error) {
+      console.error('Camera view error:', error);
+    }
+  };
   
   // No longer need to query for holes - using real OSM data
   const holes = holePolylinesByRef ? Array.from(holePolylinesByRef.keys()).map((ref, index) => ({
@@ -125,6 +186,62 @@ export default function HoleNavigator({
           aim: aimPoint,
           pin: pinPoint
         });
+      }
+      
+      // Fly to hole using custom formula
+      if (cesiumViewer) {
+        const Cesium = (window as any).Cesium;
+        
+        // Get hole length from polyline data (already in correct units)
+        const holeLen = polylineData.dist ? parseFloat(polylineData.dist) : 400; // fallback to 400 if no distance
+        
+        // Calculate offset behind tee
+        const hole_offset = (holeLen ** 0.87) * 0.7 + 50;
+        
+        // Calculate heading from tee to pin
+        const heading = bearingDeg(startPoint.lon, startPoint.lat, pinPoint.lon, pinPoint.lat);
+        
+        // Calculate camera position offset behind tee (opposite direction from pin)
+        const offsetHeading = (heading + 180) % 360;
+        const offsetPosition = offsetLL(startPoint.lon, startPoint.lat, hole_offset, offsetHeading);
+        
+        // Destination is behind the tee position
+        const destLon = Cesium.Math.toRadians(offsetPosition.lon);
+        const destLat = Cesium.Math.toRadians(offsetPosition.lat);
+        
+        // Sample terrain height at camera position
+        const cartographic = Cesium.Cartographic.fromDegrees(offsetPosition.lon, offsetPosition.lat);
+        
+        Cesium.sampleTerrainMostDetailed(cesiumViewer.terrainProvider, [cartographic])
+          .then(() => {
+            const terrainHeight = cartographic.height || 0;
+            const hole_height = Math.max((holeLen ** 0.83) * 0.7 + terrainHeight, 300);
+            
+            // Fly to hole
+            cesiumViewer.camera.flyTo({
+              destination: Cesium.Cartesian3.fromRadians(destLon, destLat, hole_height),
+              orientation: {
+                heading: Cesium.Math.toRadians(heading),
+                pitch: Cesium.Math.toRadians(-30 + (holeLen ** 0.38)),
+                roll: 0
+              },
+              duration: 0.5
+            });
+          })
+          .catch(() => {
+            // Fallback without terrain sampling
+            const hole_height = Math.max((holeLen ** 0.83) * 0.7, 300);
+            
+            cesiumViewer.camera.flyTo({
+              destination: Cesium.Cartesian3.fromRadians(destLon, destLat, hole_height),
+              orientation: {
+                heading: Cesium.Math.toRadians(heading),
+                pitch: Cesium.Math.toRadians(-30 + (holeLen ** 0.38)),
+                roll: 0
+              },
+              duration: 0.5
+            });
+          });
       }
       
       console.log(`[Nav] Navigation complete for hole ${holeNumber}`);
@@ -230,6 +347,40 @@ export default function HoleNavigator({
             No hole data available
           </div>
         )}
+
+        {/* Camera View Buttons */}
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-gray-600 mb-2">Camera Views</div>
+          <div className="grid grid-cols-3 gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs py-1 px-2"
+              onClick={() => handleCameraView('tee')}
+              disabled={!cesiumViewer || !holePolylinesByRef?.has(currentHole.toString()) || !holeFeatures}
+            >
+              Tee
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs py-1 px-2"
+              onClick={() => handleCameraView('fairway')}
+              disabled={!cesiumViewer || !holePolylinesByRef?.has(currentHole.toString()) || !holeFeatures}
+            >
+              Fairway
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs py-1 px-2"
+              onClick={() => handleCameraView('green')}
+              disabled={!cesiumViewer || !holePolylinesByRef?.has(currentHole.toString()) || !holeFeatures}
+            >
+              Green
+            </Button>
+          </div>
+        </div>
 
         {/* Manual Navigation Button */}
         <Button
