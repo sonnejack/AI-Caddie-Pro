@@ -67,3 +67,50 @@ export function flyGreenView(
   const pitch = Cesium.Math.toRadians(-90); // straight down
   fly(viewer, dest, heading, pitch, 0.35);
 }
+
+export async function flyShotPOVView(
+  viewer: any,
+  startLL: {lon:number; lat:number},
+  aimLL: {lon:number; lat:number}
+) {
+  const Cesium = getCesium();
+  
+  // Calculate heading from start to aim point
+  const heading = bearingRad(startLL.lon, startLL.lat, aimLL.lon, aimLL.lat);
+  
+  // Calculate camera position 20 meters behind start position
+  const offsetBack = 20; // 20 meters behind the start position
+  const R = 6378137.0; // Earth radius in meters
+  const dLat = (offsetBack * Math.cos(heading + Math.PI)) / R;
+  const dLon = (offsetBack * Math.sin(heading + Math.PI)) / (R * Math.cos(startLL.lat * Math.PI/180));
+  const cameraLat = startLL.lat + (dLat * 180/Math.PI);
+  const cameraLon = startLL.lon + (dLon * 180/Math.PI);
+  
+  // Get terrain height at camera position using detailed terrain sampling
+  let terrainHeight = 0;
+  try {
+    const [sample] = await Cesium.sampleTerrainMostDetailed(
+      viewer.terrainProvider,
+      [Cesium.Cartographic.fromDegrees(cameraLon, cameraLat)]
+    );
+    terrainHeight = sample.height || 0;
+  } catch (e) {
+    console.warn('terrain sample failed for Shot POV', e);
+    // Fallback to globe height if detailed sampling fails
+    terrainHeight = viewer.scene.globe.getHeight(Cesium.Cartographic.fromDegrees(cameraLon, cameraLat)) ?? 0;
+  }
+  
+  // Position camera 6 meters above terrain at camera position (eye level)
+  const cameraHeight = terrainHeight + 6;
+  
+  // Set camera to view from 20m behind start position towards aim point
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(cameraLon, cameraLat, cameraHeight),
+    orientation: {
+      heading: heading,  // Look towards aim point
+      pitch: Cesium.Math.toRadians(-2),  // Look 2 degrees down
+      roll: 0  // No roll
+    },
+    duration: 1.0
+  });
+}

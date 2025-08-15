@@ -203,13 +203,13 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
   }, [state.start, state.pin, state.aim, elevationUpdateTrigger, esResult]);
 
   return (
-    <Card className="mt-6">
-      <CardHeader>
-        <CardTitle className="text-lg font-semibold text-secondary">Shot Metrics</CardTitle>
+    <Card className="mt-3">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold text-secondary">Shot Metrics</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-0">
         {/* Main Metrics Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <div className="text-center">
             <p className="text-2xl font-bold text-primary">{metrics.totalDistance}</p>
             <p className="text-xs text-gray-600">Total Distance (yds)</p>

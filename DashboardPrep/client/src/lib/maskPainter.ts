@@ -15,7 +15,7 @@ export function createMaskFromFeatures(
 ) {
   
   const bbox = expandBBox(rawBbox, 0.01);
-  const { width, height } = computeMaskDimsPreservingAspect(bbox, 4096, 512);
+  const { width, height } = computeMaskDimsPreservingAspect(bbox, 8192, 1024);
 
   console.log("[Mask] dims", width, height, "bbox", bbox);
   console.log("[Mask] aspect(px)", (width/height).toFixed(4), "aspect(deg)", ((bbox.east-bbox.west)/(bbox.north-bbox.south)).toFixed(4));
@@ -29,14 +29,23 @@ export function createMaskFromFeatures(
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const ctx = canvas.getContext("2d", { 
+    willReadFrequently: true,
+    alpha: true,
+    antialias: false
+  });
   
   if (!ctx) {
     console.error('❌ Failed to get canvas context in createMaskFromFeatures');
     throw new Error('Failed to get canvas context');
   }
   
+  // Disable all forms of smoothing and anti-aliasing
   ctx.imageSmoothingEnabled = false;
+  (ctx as any).webkitImageSmoothingEnabled = false;
+  (ctx as any).mozImageSmoothingEnabled = false;
+  (ctx as any).msImageSmoothingEnabled = false;
+  (ctx as any).oImageSmoothingEnabled = false;
 
   const { toPx } = makeDegToPxMapper(bbox, width, height);
 
@@ -55,7 +64,10 @@ export function createMaskFromFeatures(
         for (const ring of poly) {
           ring.forEach(([lon, lat], i) => {
             const [x, y] = toPx(lon, lat);
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            // Round coordinates to prevent sub-pixel rendering
+            const roundedX = Math.round(x);
+            const roundedY = Math.round(y);
+            if (i === 0) ctx.moveTo(roundedX, roundedY); else ctx.lineTo(roundedX, roundedY);
           });
           ctx.closePath();
         }

@@ -49,7 +49,8 @@ export default function Dashboard() {
     sampleCount, setSampleCount,
     mask, setMask, maskBuffer, setMaskBuffer,
     es, setEs, best, setBest,
-    selectionMode, setSelectionMode
+    selectionMode, setSelectionMode,
+    rollCondition, setRollCondition
   } = usePrepareState();
 
   // Create a state-like object for compatibility with existing components
@@ -69,7 +70,8 @@ export default function Dashboard() {
     slopePngMeta: null,
     photorealEnabled: false,
     selectionMode,
-  }), [courseId, holeId, currentHole, start, pin, aim, skill, maxCarry, mask, selectionMode]);
+    rollCondition,
+  }), [courseId, holeId, currentHole, start, pin, aim, skill, maxCarry, mask, selectionMode, rollCondition]);
 
   const dispatch = (event: any) => {
     switch (event.type) {
@@ -265,9 +267,10 @@ export default function Dashboard() {
 
   // PrepareTab content rendered inline to avoid component recreation
   const prepareTabContent = (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mobile-stack">
-      {/* Left Sidebar */}
-      <div className="lg:col-span-3 space-y-6">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+      {/* Mobile: Show viewer first, then controls */}
+      {/* Desktop: Left Sidebar */}
+      <div className="order-2 lg:order-1 lg:col-span-3 space-y-3 lg:space-y-4">
         <CoursePicker 
           selectedCourseId={courseId || null} 
           onCourseSelect={handleCourseSelect}
@@ -320,10 +323,25 @@ export default function Dashboard() {
         />
         
         <ConditionDrawer />
+        <OptimizerPanel 
+          viewer={cesiumViewerRef}
+          start={start}
+          pin={pin}
+          aim={aim}
+          skill={skill}
+          maxCarry={maxCarry}
+          maskBuffer={maskBuffer}
+          sampleCount={sampleCount}
+          onSampleCountChange={setSampleCount}
+          onAimSet={setAim}
+          onOptimizationComplete={(candidates) => {
+            console.log('🎯 Optimization complete:', candidates.length, 'candidates');
+          }}
+        />
       </div>
 
-      {/* Center - 3D Canvas */}
-      <div className="lg:col-span-6">
+      {/* Mobile: Viewer first, Desktop: Center - 3D Canvas */}
+      <div className="order-1 lg:order-2 lg:col-span-6">
         <CesiumCanvas 
           state={state}
           onPointSet={setPoint}
@@ -372,12 +390,13 @@ export default function Dashboard() {
         <MetricsBar state={state} esResult={esResult} />
       </div>
 
-      {/* Right Sidebar */}
-      <div className="lg:col-span-3 space-y-6">
+      {/* Mobile: Controls last, Desktop: Right Sidebar */}
+      <div className="order-3 lg:order-3 lg:col-span-3 space-y-3 lg:space-y-4">
         <AimPanel 
           state={state}
           onPointSet={setPoint}
           onSkillChange={handleSkillChange}
+          onRollConditionChange={setRollCondition}
           onSelectionModeChange={setSelectionMode}
         />
         <DispersionInspector 
@@ -394,21 +413,6 @@ export default function Dashboard() {
             setESResult(result as any);
           }}
         />
-        <OptimizerPanel 
-          viewer={cesiumViewerRef}
-          start={start}
-          pin={pin}
-          aim={aim}
-          skill={skill}
-          maxCarry={maxCarry}
-          maskBuffer={maskBuffer}
-          sampleCount={sampleCount}
-          onSampleCountChange={setSampleCount}
-          onAimSet={setAim}
-          onOptimizationComplete={(candidates) => {
-            console.log('🎯 Optimization complete:', candidates.length, 'candidates');
-          }}
-        />
       </div>
     </div>
   );
@@ -417,7 +421,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-slate-50">
       {/* Header with Tabs */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-12">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-8">
               <div className="flex items-center space-x-2">
@@ -478,7 +482,7 @@ export default function Dashboard() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="max-w-full mx-auto px-4 sm:px-6 lg:px-12 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsContent value="prepare" className="mt-0">
             {prepareTabContent}

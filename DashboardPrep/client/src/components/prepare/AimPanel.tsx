@@ -2,17 +2,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { PrepareState, LatLon, SKILL_PRESETS } from '../../lib/types';
+import { PrepareState, LatLon, SKILL_PRESETS, RollCondition } from '../../lib/types';
 import { getPointElevation } from '@/lib/pointElevation';
 
 interface AimPanelProps {
   state: PrepareState;
   onPointSet: (type: 'start' | 'aim' | 'pin', point: LatLon) => void;
   onSkillChange: (skill: typeof SKILL_PRESETS[0]) => void;
+  onRollConditionChange: (rollCondition: RollCondition) => void;
   onSelectionModeChange: (mode: 'start' | 'aim' | 'pin' | null) => void;
 }
 
-export default function AimPanel({ state, onPointSet, onSkillChange, onSelectionModeChange }: AimPanelProps) {
+export default function AimPanel({ state, onPointSet, onSkillChange, onRollConditionChange, onSelectionModeChange }: AimPanelProps) {
   const formatCoordinate = (point: LatLon | null, pointType: 'start' | 'aim' | 'pin') => {
     if (!point) return 'Not set';
     
@@ -38,12 +39,12 @@ export default function AimPanel({ state, onPointSet, onSkillChange, onSelection
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-lg font-semibold text-secondary">Shot Setup</CardTitle>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold text-secondary">Shot Setup</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-2 pt-0">
         {/* Point Pickers */}
-        <div className="space-y-3">
+        <div className="space-y-2">
           {/* Starting Position */}
           <div>
             <Button
@@ -138,6 +139,28 @@ export default function AimPanel({ state, onPointSet, onSkillChange, onSelection
                   {preset.name} (±{preset.offlineDeg}° / ±{preset.distPct}%)
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Roll Condition Selector */}
+        <div>
+          <Label className="text-sm font-medium text-gray-700 mb-1">Roll Condition</Label>
+          <Select
+            value={state.rollCondition}
+            onValueChange={(value: RollCondition) => {
+              onRollConditionChange(value);
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              <SelectItem value="soft">Soft</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="firm">Firm</SelectItem>
+              <SelectItem value="concrete">Concrete</SelectItem>
             </SelectContent>
           </Select>
         </div>

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
-import { PrepareState, LatLon } from '../../lib/types';
+import { PrepareState, LatLon, getRollMultipliers } from '../../lib/types';
 import { colorizeMaskToCanvas, edgesMaskToCanvas, showRasterLayer, hideRasterLayer } from '@/lib/rasterOverlay';
 import { initPointElevation, samplePointElevation, clearElevations } from '@/lib/pointElevation';
 import type { MaskBuffer } from '@/lib/maskBuffer';
@@ -17,7 +17,7 @@ import {
 } from './SamplesLayer';
 import { showHolePolyline, hideHolePolyline } from './HolePolylineLayer';
 import { showVectorFeatures, clearVectorFeatures } from './VectorFeatureLayers';
-import { generateEllipseSamples } from '@/lib/sampling';
+import { generateEllipseSamples, generateMixedEllipseSamples } from '@/lib/sampling';
 import { 
   bearingDeg, 
   offsetLL, 
@@ -29,6 +29,7 @@ import {
   findGreenContainingPoint,
   assignEndpoints
 } from '@/lib/holeGeom';
+import { flyShotPOVView } from './cameraViews';
 
 interface ESResult {
   mean: number;
@@ -229,6 +230,11 @@ function CesiumCanvas({
     flyToLLH({ lon: green.lon, lat: green.lat, hMeters: h }, hdg, -89.5, 0.35);
   }, [viewerRef.current]);
 
+  // Shot POV camera view
+  const flyShotPOV = useCallback(async (startLL: LatLon, aimLL: LatLon) => {
+    if (!viewerRef.current) return;
+    await flyShotPOVView(viewerRef.current, startLL, aimLL);
+  }, [viewerRef.current]);
 
   // Handle camera preset buttons using HoleNavigator logic
   const handleCameraPreset = (preset: string) => {
@@ -286,6 +292,14 @@ function CesiumCanvas({
           }
           flyGreenView(hole, pinGreen);
           break;
+        case 'shotpov':
+          // Shot POV requires start and aim points
+          if (state.start && state.aim) {
+            flyShotPOV(state.start, state.aim);
+          } else {
+            console.warn('Shot POV requires both start and aim points to be set');
+          }
+          break;
         default:
           console.warn('Unknown camera preset:', preset);
       }
@@ -302,20 +316,26 @@ function CesiumCanvas({
 
     const initializeCesium = async () => {
       try {
+        console.log('🌍 Starting Cesium initialization...');
+        
         // Set Cesium Ion token from environment variable
         const token = import.meta.env.VITE_CESIUM_ION_TOKEN;
+        console.log('🔑 Setting Cesium Ion token:', token ? 'Token provided' : 'No token');
         (window as any).Cesium.Ion.defaultAccessToken = token;
         
         // Create terrain provider using Ion asset
+        console.log('🏔️ Loading terrain provider...');
         let terrainProvider;
         try {
           terrainProvider = await (window as any).Cesium.CesiumTerrainProvider.fromIonAssetId(1);
+          console.log('✅ Terrain provider loaded successfully');
         } catch (terrainError) {
           console.warn('Failed to load Ion terrain, using default terrain:', terrainError);
           terrainProvider = undefined;
         }
 
         // Initialize Cesium viewer with minimal UI
+        console.log('🎮 Creating Cesium viewer...');
         const viewer = new (window as any).Cesium.Viewer(containerRef.current, {
           terrainProvider,
         baseLayerPicker: false,
@@ -342,12 +362,15 @@ function CesiumCanvas({
         }
       });
 
+        console.log('✅ Cesium viewer created successfully');
         viewerRef.current = viewer;
         
         // Initialize SamplesLayer
+        console.log('🎨 Initializing samples layer...');
         initSamplesLayer(viewer);
         
         // Initialize point elevation system
+        console.log('📏 Initializing point elevation system...');
         initPointElevation(viewer);
         
         // Notify parent component that viewer is ready
@@ -360,6 +383,7 @@ function CesiumCanvas({
           onViewerReady(viewerWithCameraFunctions);
         }
         
+        console.log('🎉 Cesium initialization complete!');
         setViewerReady(true);
         initializingRef.current = false;
 
@@ -417,6 +441,7 @@ function CesiumCanvas({
       aim: state.aim,
       pin: state.pin,
       skill: state.skillPreset,
+      rollCondition: state.rollCondition,
       samples: nSamples,
       show: showSamples
     });
@@ -462,15 +487,65 @@ function CesiumCanvas({
     }
     
     try {
-      // Generate preview points immediately (gray)
-      const previewPoints = generateEllipseSamples(
-        nSamples,
-        semiMajor,
-        semiMinor,
-        headingRad,
-        state.aim,
-        1 // seed
-      );
+      let previewPoints: Float64Array;
+      
+      // Generate preview points - use mixed sampling if roll condition is not 'none'
+      if (state.rollCondition && state.rollCondition !== 'none') {
+        // Calculate roll ellipse parameters
+        const rollMultipliers = getRollMultipliers(state.rollCondition);
+        const rollSemiMajor = semiMajor * rollMultipliers.widthMultiplier;
+        const rollSemiMinor = semiMinor * rollMultipliers.depthMultiplier;
+        
+        // Calculate roll ellipse center position (same logic as visual ellipse)
+        const carryDistanceFromCenter = semiMinor;
+        const rollDistanceFromCenter = rollSemiMinor;
+        const rollCenterOffset = rollDistanceFromCenter - carryDistanceFromCenter;
+        
+        // Convert bearing to direction vector for offset calculation
+        const bearing = calculateBearing(state.start, state.aim);
+        const offsetX = rollCenterOffset * Math.sin(bearing);
+        const offsetY = rollCenterOffset * Math.cos(bearing);
+        
+        // Convert offset from meters to degrees
+        const R = 6371000;
+        const deltaLat = offsetY / R * 180 / Math.PI;
+        const deltaLon = offsetX / (R * Math.cos(state.aim.lat * Math.PI / 180)) * 180 / Math.PI;
+        
+        const rollCenterLL = {
+          lon: state.aim.lon + deltaLon,
+          lat: state.aim.lat + deltaLat
+        };
+        
+        // Generate mixed samples
+        const result = generateMixedEllipseSamples(
+          nSamples,
+          {
+            semiMajor,
+            semiMinor,
+            headingRad,
+            centerLL: state.aim
+          },
+          {
+            semiMajor: rollSemiMajor,
+            semiMinor: rollSemiMinor,
+            headingRad,
+            centerLL: rollCenterLL
+          },
+          1 // seed
+        );
+        
+        previewPoints = result.samples;
+      } else {
+        // Generate standard ellipse samples (carry only)
+        previewPoints = generateEllipseSamples(
+          nSamples,
+          semiMajor,
+          semiMinor,
+          headingRad,
+          state.aim,
+          1 // seed
+        );
+      }
       
       // Show preview points
       setSamples(previewPoints);
@@ -498,7 +573,7 @@ function CesiumCanvas({
       return;
     }
     
-  }, [state.start, state.aim, state.pin, state.skillPreset, nSamples, showSamples, viewerReady, maskBuffer, onESWorkerCall]);
+  }, [state.start, state.aim, state.pin, state.skillPreset, state.rollCondition, nSamples, showSamples, viewerReady, maskBuffer, onESWorkerCall]);
 
   // Sample elevation when points change
   useEffect(() => {
@@ -736,7 +811,7 @@ function CesiumCanvas({
       });
     }
 
-    // Add dispersion ellipse if both start and aim are set
+    // Add dispersion ellipses if both start and aim are set
     if (state.start && state.aim) {
       // Calculate ellipse parameters based on shot direction
       const distance = calculateDistance(state.start, state.aim);
@@ -755,19 +830,64 @@ function CesiumCanvas({
       const semiMajor = widthError;
       const semiMinor = depthError;
       
-      // Create ellipse polyline points
-      const lonLatArr = ellipseLonLatArray(state.aim.lon, state.aim.lat, semiMajor, semiMinor, rotRad);
+      // Create carry ellipse polyline points
+      const carryLonLatArr = ellipseLonLatArray(state.aim.lon, state.aim.lat, semiMajor, semiMinor, rotRad);
       
-      // Create polyline ellipse with ground clamping
+      // Create carry ellipse with yellow color
       viewer.entities.add({
         polyline: {
-          positions: (window as any).Cesium.Cartesian3.fromDegreesArray(lonLatArr),
+          positions: (window as any).Cesium.Cartesian3.fromDegreesArray(carryLonLatArr),
           width: 3,
           material: (window as any).Cesium.Color.YELLOW,
           clampToGround: true,
           classificationType: (window as any).Cesium.ClassificationType.TERRAIN
         }
       });
+
+      // Add roll ellipse if roll condition is not 'none'
+      if (state.rollCondition && state.rollCondition !== 'none') {
+        // Get roll multipliers
+        const rollMultipliers = getRollMultipliers(state.rollCondition);
+        
+        // Calculate roll ellipse dimensions
+        const rollSemiMajor = semiMajor * rollMultipliers.widthMultiplier;
+        const rollSemiMinor = semiMinor * rollMultipliers.depthMultiplier;
+        
+        // Calculate roll ellipse center position
+        // Position it so the minimum values are not closer than the carry oval
+        // The roll oval and carry oval share a tangent point at the minor axis
+        const carryDistanceFromCenter = semiMinor; // Distance from center to edge along shot line
+        const rollDistanceFromCenter = rollSemiMinor; // Distance from center to edge along shot line
+        
+        // Calculate how far forward the roll ellipse center needs to be
+        const rollCenterOffset = rollDistanceFromCenter - carryDistanceFromCenter;
+        
+        // Convert bearing to direction vector for offset calculation
+        const offsetX = rollCenterOffset * Math.sin(bearing); // Longitude offset
+        const offsetY = rollCenterOffset * Math.cos(bearing); // Latitude offset
+        
+        // Convert offset from meters to degrees
+        const R = 6371000; // Earth radius in meters
+        const deltaLat = offsetY / R * 180 / Math.PI;
+        const deltaLon = offsetX / (R * Math.cos(state.aim.lat * Math.PI / 180)) * 180 / Math.PI;
+        
+        const rollCenterLon = state.aim.lon + deltaLon;
+        const rollCenterLat = state.aim.lat + deltaLat;
+        
+        // Create roll ellipse polyline points
+        const rollLonLatArr = ellipseLonLatArray(rollCenterLon, rollCenterLat, rollSemiMajor, rollSemiMinor, rotRad);
+        
+        // Create roll ellipse with green color
+        viewer.entities.add({
+          polyline: {
+            positions: (window as any).Cesium.Cartesian3.fromDegreesArray(rollLonLatArr),
+            width: 3,
+            material: (window as any).Cesium.Color.GREEN,
+            clampToGround: true,
+            classificationType: (window as any).Cesium.ClassificationType.TERRAIN
+          }
+        });
+      }
     }
 
     // Create tight bbox around golf features only (red, 8px thick)
@@ -1077,7 +1197,7 @@ function CesiumCanvas({
       </CardHeader>
       <CardContent className="p-0">
         {/* 3D Canvas Container */}
-        <div className="relative h-96 bg-gradient-to-br from-green-100 to-green-200">
+        <div className="relative h-[40vh] sm:h-[48vh] lg:h-[32rem] xl:h-[35rem] 2xl:h-[38rem] bg-gradient-to-br from-green-100 to-green-200">
           <div ref={containerRef} className="absolute inset-0" />
           
           {(!viewerReady || loadingCourse) && (
@@ -1163,6 +1283,15 @@ function CesiumCanvas({
               <span>Zoom: <span className="font-medium">15x</span></span>
             </div>
             <div className="flex items-center space-x-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-xs flex-1"
+                onClick={() => handleCameraPreset('shotpov')}
+                disabled={!viewerRef.current || !state.start || !state.aim}
+              >
+                Shot POV
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

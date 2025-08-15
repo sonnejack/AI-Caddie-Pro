@@ -35,7 +35,7 @@ export default function OptimizerPanel({
   maxCarry, 
   maskBuffer,
   heightGrid,
-  sampleCount = 600,
+  sampleCount = 800,
   onSampleCountChange,
   onAimSet,
   onOptimizationComplete
@@ -49,8 +49,8 @@ export default function OptimizerPanel({
   
   // Advanced parameters (with defaults)
   const [maxDistance, setMaxDistance] = useState(maxCarry);
-  const [nEarly, setNEarly] = useState(250);
-  const [ci95Stop, setCi95Stop] = useState(0.04);
+  const [nEarly, setNEarly] = useState(350);
+  const [ci95Stop, setCi95Stop] = useState(0.001);
   
   // Use controlled sample count from parent instead of local state
   const nFinal = sampleCount;
@@ -79,13 +79,17 @@ export default function OptimizerPanel({
   }, [maxCarry]);
 
   const handleRunOptimizer = useCallback(async () => {
-    if (!canOptimize || isOptimizing) return;
-
-    // Check if strategy is implemented
-    if (strategy === 'RingGrid') {
-      setError('Ring Grid optimizer is not implemented yet. Please use CEM optimizer instead.');
+    console.log('🎯 Optimize button clicked');
+    console.log('🎯 canOptimize:', canOptimize);
+    console.log('🎯 isOptimizing:', isOptimizing);
+    console.log('🎯 Prerequisites:', { start: !!start, pin: !!pin, skill: !!skill, maskBuffer: !!maskBuffer });
+    
+    if (!canOptimize || isOptimizing) {
+      console.warn('⚠️ Cannot optimize - prerequisites not met or already optimizing');
       return;
     }
+
+    console.log('🎯 Starting optimization process...');
 
     setIsOptimizing(true);
     setProgress(0);
@@ -125,14 +129,17 @@ export default function OptimizerPanel({
       };
 
       // Create worker
+      console.log('🎯 Creating optimizer worker...');
       workerRef.current = new Worker(
         new URL("../../workers/optimizerWorker.ts", import.meta.url), 
         { type: "module" }
       );
+      console.log('🎯 Worker created:', workerRef.current);
 
       // Set up message handlers
       workerRef.current.onmessage = (e: MessageEvent<ProgressMsg | DoneMsg | ErrorMsg>) => {
         const message = e.data;
+        console.log('🎯 Received message from worker:', message);
         
         switch (message.type) {
           case 'progress':
@@ -146,6 +153,9 @@ export default function OptimizerPanel({
             setIsOptimizing(false);
             
             const resultCandidates = message.result.candidates;
+            console.log('🎯 Optimization completed with candidates:', resultCandidates);
+            console.log('🎯 Viewer reference for candidates:', !!viewer);
+            
             setCandidates(resultCandidates);
             setCandidatePoints(resultCandidates);
             onOptimizationComplete?.(resultCandidates);
@@ -167,11 +177,18 @@ export default function OptimizerPanel({
       };
 
       workerRef.current.onerror = (error) => {
-        console.error('Optimizer worker error:', error);
+        console.error('🎯 Optimizer worker error:', error);
         setError('Optimizer worker failed');
         setIsOptimizing(false);
         setProgress(0);
         setProgressNote('');
+      };
+      
+      // Also listen for worker creation errors
+      workerRef.current.onmessageerror = (error) => {
+        console.error('🎯 Worker message error:', error);
+        setError('Worker communication failed');
+        setIsOptimizing(false);
       };
 
       // Start optimization
@@ -181,7 +198,9 @@ export default function OptimizerPanel({
         input: optimizerInput
       };
       
+      console.log('🎯 Sending message to worker:', message);
       workerRef.current.postMessage(message);
+      console.log('🎯 Message sent to worker');
 
     } catch (error) {
       console.error('Failed to start optimization:', error);
@@ -221,10 +240,10 @@ export default function OptimizerPanel({
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-lg font-semibold">Aim Optimizer</CardTitle>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold">Aim Optimizer</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3 pt-0">
         {/* Strategy Selection */}
         <div className="space-y-2">
           <Label htmlFor="strategy">Optimization Strategy</Label>
@@ -234,7 +253,7 @@ export default function OptimizerPanel({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="CEM">CEM (Cross-Entropy Method)</SelectItem>
-              <SelectItem value="RingGrid">Ring Grid (Coming Soon)</SelectItem>
+              <SelectItem value="RingGrid">Ring Grid (Forward Half-Disc)</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -250,7 +269,7 @@ export default function OptimizerPanel({
                 value={maxDistance} 
                 onChange={(e) => setMaxDistance(Number(e.target.value))}
                 min={50}
-                max={400}
+                max={450}
               />
             </div>
             <div>
@@ -295,7 +314,14 @@ export default function OptimizerPanel({
         {/* Run/Cancel Button */}
         <Button
           className="w-full"
-          onClick={isOptimizing ? handleCancelOptimization : handleRunOptimizer}
+          onClick={() => {
+            console.log('🎯 Button clicked - isOptimizing:', isOptimizing);
+            if (isOptimizing) {
+              handleCancelOptimization();
+            } else {
+              handleRunOptimizer();
+            }
+          }}
           disabled={!canOptimize}
           variant={isOptimizing ? "destructive" : "default"}
         >
@@ -347,7 +373,7 @@ export default function OptimizerPanel({
                       ? 'bg-gray-50 border-gray-300 hover:bg-gray-100'      // Silver
                       : index === 2
                       ? 'bg-orange-50 border-orange-300 hover:bg-orange-100' // Bronze
-                      : 'bg-green-50 border-green-200 hover:bg-green-100'    // Good ES
+                      : 'bg-slate-250 border-slate-500 hover:bg-slate-300'    // Good ES
                   }`}
                   onClick={() => handleCandidateClick(candidate, index + 1)}
                 >
@@ -355,7 +381,7 @@ export default function OptimizerPanel({
                     <span className={`text-sm font-medium ${
                       index === 0 ? 'text-yellow-800' : 
                       index === 1 ? 'text-gray-800' : 
-                      index === 2 ? 'text-orange-800' : 'text-green-800'
+                      index === 2 ? 'text-orange-800' : 'text-slate-800'
                     }`}>
                       #{index + 1} {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '✨'}
                     </span>
@@ -364,7 +390,7 @@ export default function OptimizerPanel({
                       className={
                         index === 0 ? 'bg-yellow-200 text-yellow-800' : 
                         index === 1 ? 'bg-gray-200 text-gray-800' :
-                        index === 2 ? 'bg-orange-200 text-orange-800' : 'bg-green-200 text-green-800'
+                        index === 2 ? 'bg-orange-200 text-orange-800' : 'bg-slate-200 text-slate-800'
                       }
                     >
                       {index === 0 ? 'Best' : getDifferenceFromBest(candidate, candidates[0].es)}
@@ -373,7 +399,7 @@ export default function OptimizerPanel({
                   <div className={`text-sm ${
                     index === 0 ? 'text-yellow-700' : 
                     index === 1 ? 'text-gray-700' : 
-                    index === 2 ? 'text-orange-700' : 'text-green-700'
+                    index === 2 ? 'text-orange-700' : 'text-slate-700'
                   }`}>
                     <p>ES: <span className="font-medium">{formatES(candidate.es, candidate.esCi95)}</span></p>
                     <p>Position: <span className="font-mono text-xs">{candidate.lat.toFixed(6)}, {candidate.lon.toFixed(6)}</span></p>

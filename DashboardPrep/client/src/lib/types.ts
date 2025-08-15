@@ -15,7 +15,18 @@ export type MaskMeta = {
 
 export type ClassId = 0|1|2|3|4|5|6|7|8|9; // unknown, OB, Water, Hazard, Bunker, Green, Fairway, Recovery, Rough, TEE
 
-export type ESResult = { mean: number; ci95: number; n: number; countsByClass: Record<ClassId, number> };
+export type RollCondition = 'none' | 'soft' | 'medium' | 'firm' | 'concrete';
+
+export type ESResult = { 
+  mean: number; 
+  ci95: number; 
+  n: number; 
+  countsByClass: Record<ClassId, number>;
+  avgProximity?: number;        // Average distance from all sample points to pin
+  avgProximityInPlay?: number;  // Average distance from in-play sample points to pin
+  distsYds?: number[];          // Legacy: distances of each sample to pin
+  classes?: ClassId[];          // Legacy: class of each sample point
+};
 
 export type AimCandidate = { aim: LatLon; es: ESResult; distanceYds: number };
 
@@ -35,6 +46,7 @@ export type PrepareState = {
   maxCarry: number;
   photorealEnabled: boolean;
   selectionMode: 'start' | 'aim' | 'pin' | null;
+  rollCondition: RollCondition;
 };
 
 export type PrepareEvent = 
@@ -44,9 +56,25 @@ export type PrepareEvent =
   | { type: 'POINT_SET'; payload: { type: 'start'|'aim'|'pin'; point: LatLon } }
   | { type: 'SELECTION_MODE_CHANGED'; payload: { mode: 'start'|'aim'|'pin'|null } }
   | { type: 'SKILL_CHANGED'; payload: { skill: SkillPreset } }
+  | { type: 'ROLL_CONDITION_CHANGED'; payload: { rollCondition: RollCondition } }
   | { type: 'SAMPLES_UPDATED'; payload: ESResult }
   | { type: 'OPTIMIZER_RESULT'; payload: { candidates: AimCandidate[] } }
   | { type: 'POLYGONS_CHANGED'; payload: { polygons: any[] } };
+
+export function getRollMultipliers(condition: RollCondition) {
+  switch (condition) {
+    case 'soft':
+      return { widthMultiplier: 1.07, depthMultiplier: 1.4 };
+    case 'medium':
+      return { widthMultiplier: 1.14, depthMultiplier: 1.7 };
+    case 'firm':
+      return { widthMultiplier: 1.19, depthMultiplier: 2.0 };
+    case 'concrete':
+      return { widthMultiplier: 1.23, depthMultiplier: 2.3 };
+    default: // 'none'
+      return { widthMultiplier: 1.0, depthMultiplier: 1.0 };
+  }
+}
 
 export const SKILL_PRESETS: SkillPreset[] = [
   { name: "Robot", offlineDeg: 2.5, distPct: 2.5 },

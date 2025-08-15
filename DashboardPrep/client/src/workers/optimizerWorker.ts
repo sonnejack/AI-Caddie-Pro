@@ -636,10 +636,12 @@ let currentAbortController: AbortController | null = null;
 // Worker message handler
 self.onmessage = async function(e: MessageEvent<OptimizeMsg>) {
   const { type, strategy, input } = e.data;
+  console.log('🎯 Worker received message:', type, strategy);
 
   try {
     switch (type) {
       case 'run':
+        console.log('🎯 Worker starting optimization with strategy:', strategy);
         // Cancel any running optimization
         if (currentAbortController) {
           currentAbortController.abort();
@@ -647,11 +649,17 @@ self.onmessage = async function(e: MessageEvent<OptimizeMsg>) {
         
         currentAbortController = new AbortController();
         
-        if (strategy === 'RingGrid') {
-          throw new Error('Ring Grid optimizer is not implemented yet. Please use CEM optimizer instead.');
-        }
+        let result: OptimizerResult;
         
-        const result = await runCEMOptimization(input, currentAbortController.signal);
+        if (strategy === 'RingGrid') {
+          // Use the new Ring Grid optimizer implementation
+          const { RingGridOptimizer } = await import('../lib/optimizer/ringGrid');
+          const optimizer = new RingGridOptimizer();
+          result = await optimizer.run(input, currentAbortController.signal);
+        } else {
+          // Use existing CEM optimizer
+          result = await runCEMOptimization(input, currentAbortController.signal);
+        }
         
         if (!currentAbortController.signal.aborted) {
           const progressMsg: ProgressMsg = {
@@ -661,6 +669,9 @@ self.onmessage = async function(e: MessageEvent<OptimizeMsg>) {
           };
           self.postMessage(progressMsg);
 
+          console.log('🎯 Worker: Optimization completed, sending result:', result);
+          console.log('🎯 Worker: Candidates:', result.candidates);
+          
           const doneMsg: DoneMsg = {
             type: 'done',
             result

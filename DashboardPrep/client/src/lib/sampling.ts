@@ -1,4 +1,4 @@
-import { LatLon, SkillPreset } from './types';
+import { LatLon, SkillPreset, RollCondition, getRollMultipliers } from './types';
 
 // Common Halton sequence generator for consistent sampling between preview and worker
 export function halton2D(index: number, base1: number = 2, base2: number = 3): [number, number] {
@@ -71,6 +71,66 @@ export function generateEllipseSamples(
   }
   
   return pointsLL;
+}
+
+// Generate mixed samples: N/3 from carry ellipse + 2N/3 from roll ellipse
+export function generateMixedEllipseSamples(
+  nSamples: number,
+  carryParams: {
+    semiMajor: number;
+    semiMinor: number;
+    headingRad: number;
+    centerLL: LatLon;
+  },
+  rollParams: {
+    semiMajor: number;
+    semiMinor: number; 
+    headingRad: number;
+    centerLL: LatLon;
+  },
+  seed: number = 1
+): { samples: Float64Array; carryCount: number; rollCount: number } {
+  const carryCount = Math.floor(nSamples / 3);
+  const rollCount = nSamples - carryCount; // This ensures total is exactly nSamples
+  
+  const pointsLL = new Float64Array(nSamples * 2);
+  let pointIndex = 0;
+  
+  // Generate carry samples (N/3)
+  for (let i = 0; i < carryCount; i++) {
+    const [u, v] = halton2D(seed + i);
+    const point = mapUnitDiskToEllipse(
+      u, v, 
+      carryParams.semiMajor, 
+      carryParams.semiMinor, 
+      carryParams.headingRad, 
+      carryParams.centerLL
+    );
+    pointsLL[pointIndex * 2] = point.lon;
+    pointsLL[pointIndex * 2 + 1] = point.lat;
+    pointIndex++;
+  }
+  
+  // Generate roll samples (2N/3)
+  for (let i = 0; i < rollCount; i++) {
+    const [u, v] = halton2D(seed + carryCount + i); // Continue sequence
+    const point = mapUnitDiskToEllipse(
+      u, v, 
+      rollParams.semiMajor, 
+      rollParams.semiMinor, 
+      rollParams.headingRad, 
+      rollParams.centerLL
+    );
+    pointsLL[pointIndex * 2] = point.lon;
+    pointsLL[pointIndex * 2 + 1] = point.lat;
+    pointIndex++;
+  }
+  
+  return { 
+    samples: pointsLL, 
+    carryCount, 
+    rollCount 
+  };
 }
 
 export class HaltonSampler {

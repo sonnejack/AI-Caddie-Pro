@@ -355,18 +355,34 @@ All core Prepare workflow functionality is now working end-to-end with real data
 ### Outstanding Issues & Development Roadmap
 
 **Existing Issues:**
-- ⚠️ **Optimization Results Not Viewable**: Still unable to view ranked options from optimization process
+- ⚠️ **Optimization Results Not Viewable**: Still unable to view ranked options from optimization process. Clicking on the option moves it there, but not visible as options on the viewer.
 - ⚠️ **Missing Grid Search Optimizer**: Need to implement grid search optimizer as alternative to CEM
 - ⚠️ **Drawing Features Incomplete**: Need to implement drawing features and the re-rasterization pipeline
 - ⚠️ **Advanced Features Missing**: Need to add advanced short game and slope arrow toggles for enhanced analysis
-
+- **Overview Button not working properly**: Same as thefairway button right now. should be same as the hole button (see what fly to happens when hole nav button is clicked)
 **User Experience Enhancements:**
 - 📚 **Loading Experience**: Add helpful tips instead of the default loading message to educate users
 - 📄 **Documentation Pages**: Add comprehensive about page and light/dark mode toggle
 - 🎯 **Fundamentals Education**: Add fundamentals page covering basics of golf dispersion and shot analysis
 
+- **Change logo**: Check chatGPT for the oval with flag logo and add it in
+- **Tweak button Spacing, width, and Mobile appearances**: Also, move the N samples to the dispersion analysis frame from Cesium Viewer frame.
+- **Rename metrics & dispersion visuals**
+
 **Technical Priorities:**
 1. **Optimization System**: Debug ranked candidates display and implement grid search fallback
 2. **Drawing Tools**: Complete polygon drawing UI with real-time rasterization
-3. **Advanced Analysis**: Implement slope-aware calculations and green reading features
+3. **Advanced Analysis**: Implement slope-aware calculations
 4. **Educational Content**: Create comprehensive learning resources for golf analytics
+
+**Mobile Idea**
+- screen 90% cesium viewer vertically, 100% horizontal
+- tabs underneath
+- course select, hole navigation, shot setup, dispersion analysis overlapping cesium viewer screen as icon tabs collaped (expand when clicked) down the left side
+- Shot metrics tab displayed across the top/bottom floating
+- optimize button floating, optimize options as a collapsed overlapping icon tab.
+
+**Bugs discovered**
+- runtime error?
+- points stop clamping to surface if i spam 'optimize' (fixed after waiting a few seconds)
+- very slow loading time occassionally. might be due to new 

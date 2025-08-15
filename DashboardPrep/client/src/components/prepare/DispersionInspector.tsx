@@ -211,7 +211,9 @@ export default function DispersionInspector({
       mean: meanES,
       ci95: 0.05, // Placeholder
       n: numberOfSamples,
-      countsByClass
+      countsByClass,
+      avgProximity,
+      avgProximityInPlay
     };
 
     // Update UI
@@ -285,12 +287,9 @@ export default function DispersionInspector({
 
   // Calculate condition breakdown from ES result
   const calculateConditionBreakdown = () => {
-    if (!esResult?.countsByClass) return [];
+    const totalSamples = esResult?.n || 0;
     
-    const totalSamples = esResult.n || 0;
-    if (totalSamples === 0) return [];
-    
-    // Map class IDs to conditions with colors
+    // Map class IDs to conditions with colors (always show all condition types)
     const conditionMapping = [
       { classId: 6, condition: 'Fairway', color: 'bg-lime-500' },
       { classId: 5, condition: 'Green', color: 'bg-green-400' },
@@ -306,20 +305,20 @@ export default function DispersionInspector({
 
     return conditionMapping
       .map(({ classId, condition, color }) => {
-        const count = esResult.countsByClass[classId as keyof typeof esResult.countsByClass] || 0;
-        const percentage = Math.round((count / totalSamples) * 100);
-        return { condition, percentage, count, color };
+        const count = esResult?.countsByClass?.[classId as keyof typeof esResult.countsByClass] || 0;
+        const percentage = totalSamples > 0 ? Math.round((count / totalSamples) * 100) : 0;
+        const hasData = count > 0; // Show row if there's any count, even if percentage rounds to 0
+        return { condition, percentage, count, color, hasData };
       })
-      .filter(item => item.count > 0) // Only show conditions that have samples
-      .sort((a, b) => b.percentage - a.percentage); // Sort by percentage descending
+      .sort((a, b) => b.count - a.count); // Sort by count descending to put populated rows first
   };
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-lg font-semibold text-secondary">Dispersion Analysis</CardTitle>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold text-secondary">Dispersion Analysis</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3 pt-0">
         {/* Ellipse Dimensions */}
         <div>
           <h4 className="text-sm font-medium text-gray-700 mb-2">Ellipse Dimensions</h4>
@@ -340,42 +339,40 @@ export default function DispersionInspector({
         </div>
 
         {/* Landing Conditions */}
-        {esResult && esResult.countsByClass && (
-          <div>
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Landing Conditions</h4>
-            <div className="space-y-1.5">
-              {calculateConditionBreakdown().map((condition, index) => (
-                <div key={index} className="flex items-center space-x-2">
-                  {/* Condition label */}
-                  <div className="flex-shrink-0 w-12 text-xs text-gray-600 text-right">
-                    {condition.condition}
-                  </div>
+        <div>
+          <h4 className="text-sm font-medium text-gray-700 mb-2">Landing Conditions</h4>
+          <div className="space-y-1.5">
+            {calculateConditionBreakdown().map((condition, index) => (
+              <div key={index} className="flex items-center space-x-2 h-5">
+                {/* Condition label */}
+                <div className="flex-shrink-0 w-12 text-xs text-gray-600 text-right flex items-center justify-end h-full">
+                  {condition.hasData ? condition.condition : ''}
+                </div>
+                
+                {/* Bar container */}
+                <div className="flex-1 bg-gray-200 rounded-full h-3 relative overflow-hidden">
+                  {/* Filled bar */}
+                  <div
+                    className={`h-full ${condition.color} transition-all duration-300 ease-out`}
+                    style={{ width: `${Math.max(condition.percentage, condition.hasData ? 1 : 0)}%` }}
+                  />
                   
-                  {/* Bar container */}
-                  <div className="flex-1 bg-gray-200 rounded-full h-3 relative overflow-hidden">
-                    {/* Filled bar */}
-                    <div
-                      className={`h-full ${condition.color} transition-all duration-300 ease-out`}
-                      style={{ width: `${condition.percentage}%` }}
-                    />
-                    
-                    {/* Percentage text overlay */}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-xs font-medium text-gray-800 drop-shadow-sm">
-                        {condition.percentage}%
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* Count */}
-                  <div className="flex-shrink-0 w-6 text-xs text-gray-500 text-left">
-                    {condition.count}
+                  {/* Percentage text overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-xs font-medium text-gray-800 drop-shadow-sm">
+                      {condition.percentage > 0 ? `${condition.percentage}%` : condition.hasData ? '<1%' : ''}
+                    </span>
                   </div>
                 </div>
-              ))}
-            </div>
+                
+                {/* Count */}
+                <div className="flex-shrink-0 w-6 text-xs text-gray-500 text-left flex items-center h-full">
+                  {condition.count > 0 ? condition.count : ''}
+                </div>
+              </div>
+            ))}
           </div>
-        )}
+        </div>
       </CardContent>
     </Card>
   );

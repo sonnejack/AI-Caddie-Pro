@@ -19,12 +19,12 @@ interface CEMParameters {
 }
 
 const DEFAULT_CEM_PARAMS: CEMParameters = {
-  maxIterations: 8,
-  populationSize: 50,
-  eliteRatio: 0.2, // top 20%
-  varianceFloor: 1e-6,
-  convergenceThreshold: 1e-4,
-  stagnationLimit: 2
+  maxIterations: 12,
+  populationSize: 80,
+  eliteRatio: 0.3, // top 30% to maintain more diversity
+  varianceFloor: (10 * 0.9144) ** 2, // 10 yards in meters squared - much larger floor
+  convergenceThreshold: 1e-3,
+  stagnationLimit: 4 // allow more iterations before giving up
 };
 
 export class CEMOptimizer implements OptimizerStrategy {
@@ -49,8 +49,9 @@ export class CEMOptimizer implements OptimizerStrategy {
     const pinMeters = toMeters(input.pin);
     const startToPinDist = Math.sqrt(pinMeters.x * pinMeters.x + pinMeters.y * pinMeters.y);
 
-    // Initialize distribution: mean at 60-70% toward pin, covariance = (0.4*R)^2
-    const initRatio = 0.65;
+    // Initialize distribution: mean at center of search space for better exploration
+    // Start at 50% toward pin to avoid bias toward short distances
+    const initRatio = 0.5;
     let mean = {
       x: pinMeters.x * initRatio,
       y: pinMeters.y * initRatio
@@ -59,17 +60,21 @@ export class CEMOptimizer implements OptimizerStrategy {
     // Ensure initial mean is within disk
     const initDist = Math.sqrt(mean.x * mean.x + mean.y * mean.y);
     if (initDist > maxRadiusM) {
-      const scale = maxRadiusM * 0.8 / initDist;
+      const scale = maxRadiusM * 0.7 / initDist;
       mean.x *= scale;
       mean.y *= scale;
     }
     
-    const initVariance = (0.4 * maxRadiusM) ** 2;
+    // Much larger initial variance for better exploration (60% of max radius)
+    const initVariance = (0.6 * maxRadiusM) ** 2;
     let cov = [[initVariance, 0], [0, initVariance]];
     
     let bestES = Infinity;
     let stagnationCount = 0;
     let totalEvals = 0;
+    
+    // Track all evaluations for final candidate selection
+    const allEvaluations: { point: { x: number; y: number }; es: number; ll: LL }[] = [];
     
     const diagnostics: Record<string, any> = {
       iterations: [],
@@ -82,7 +87,7 @@ export class CEMOptimizer implements OptimizerStrategy {
       // Generate population
       const population: { x: number; y: number }[] = [];
       let attempts = 0;
-      const maxAttempts = params.populationSize * 5;
+      const maxAttempts = params.populationSize * 10; // More attempts for better exploration
       
       while (population.length < params.populationSize && attempts < maxAttempts) {
         attempts++;
@@ -91,6 +96,13 @@ export class CEMOptimizer implements OptimizerStrategy {
         
         if (dist <= maxRadiusM) {
           population.push(sample);
+        }
+        
+        // If we're having trouble generating samples within the disk,
+        // add some uniform samples across the entire disk to maintain exploration
+        if (attempts > params.populationSize * 3 && population.length < params.populationSize * 0.7) {
+          const uniformSample = this.sampleUniformDisk(maxRadiusM);
+          population.push(uniformSample);
         }
       }
       
@@ -113,6 +125,13 @@ export class CEMOptimizer implements OptimizerStrategy {
         const es = await this.evaluateAimPoint(ll, input, signal);
         totalEvals++;
         evaluations.push({ point, es });
+        
+        // Also track in global list for final candidate selection
+        allEvaluations.push({ point, es, ll });
+        
+        if (iter === 0 && evaluations.length <= 3) {
+          console.log(`🎯 CEM iteration ${iter}, evaluation ${evaluations.length}: ES=${es.toFixed(3)} at [${ll.lat.toFixed(6)}, ${ll.lon.toFixed(6)}]`);
+        }
         
         // Update progress
         const progress = (iter / params.maxIterations) * 100 + 
@@ -186,9 +205,9 @@ export class CEMOptimizer implements OptimizerStrategy {
       mean = newMean;
       cov = newCov;
       
-      // Check if covariance is too small
+      // Check if covariance is too small - use more lenient threshold
       const maxVar = Math.max(cov[0][0], cov[1][1]);
-      if (maxVar < params.varianceFloor * 10) {
+      if (maxVar < params.varianceFloor * 2) {
         break;
       }
     }
@@ -197,13 +216,14 @@ export class CEMOptimizer implements OptimizerStrategy {
     if (signal.aborted) throw new Error('Optimization aborted');
     
     // Take top candidates with spatial separation
+    console.log('🎯 CEM: Selecting final candidates from', allEvaluations.length, 'evaluations');
     const finalCandidates = await this.selectFinalCandidates(
-      diagnostics.iterations.flatMap(iter => 
-        iter.populationSize ? [] : [] // We need to track candidates properly
-      ),
+      allEvaluations,
       input,
       signal
     );
+    
+    console.log('🎯 CEM: Final candidates:', finalCandidates);
     
     return {
       candidates: finalCandidates,
@@ -265,18 +285,119 @@ export class CEMOptimizer implements OptimizerStrategy {
     return stats.getMean();
   }
   
+  private async evaluateAimPointFinal(aim: LL, input: OptimizerInput, signal: AbortSignal): Promise<{ mean: number; ci95: number }> {
+    const stats = new ProgressiveStats();
+    const maxSamples = input.eval.nFinal; // Use full sample count for final evaluation
+    
+    // Calculate ellipse parameters (same as evaluateAimPoint)
+    const aimToStart = {
+      x: (input.start.lon - aim.lon) * M_PER_DEG_LAT * Math.cos(aim.lat * Math.PI / 180),
+      y: (input.start.lat - aim.lat) * M_PER_DEG_LAT
+    };
+    const distance = Math.sqrt(aimToStart.x ** 2 + aimToStart.y ** 2);
+    const bearing = Math.atan2(aimToStart.x, aimToStart.y);
+    
+    // Convert skill parameters to ellipse dimensions (in meters)
+    const distanceYards = distance / 0.9144;
+    const semiMajorYards = (input.skill.distPct / 100) * distanceYards;
+    const semiMinorYards = distanceYards * Math.tan(input.skill.offlineDeg * Math.PI / 180);
+    const semiMajorM = semiMajorYards * 0.9144;
+    const semiMinorM = semiMinorYards * 0.9144;
+    
+    // Generate samples using uniform ellipse sampling
+    for (let i = 0; i < maxSamples; i++) {
+      if (signal.aborted) throw new Error('Evaluation aborted');
+      
+      const sample = this.sampleEllipse(aim, semiMajorM, semiMinorM, bearing);
+      const classId = classifyPointInstant(sample.lon, sample.lat, {
+        width: input.mask.width,
+        height: input.mask.height,
+        bbox: input.mask.bbox,
+        data: input.mask.classes
+      } as any);
+      
+      // Convert class to condition for ES calculation
+      const condition = this.classIdToCondition(classId);
+      const distanceToPin = this.calculateDistance(sample, input.pin);
+      const distanceToPinYards = distanceToPin / 0.9144;
+      
+      // For normal optimization, we use flat distance (no elevation adjustment)
+      let playsLikeDistance = distanceToPinYards;
+      
+      const es = ES.calculate(playsLikeDistance, condition);
+      stats.add(es);
+    }
+    
+    return {
+      mean: stats.getMean(),
+      ci95: stats.getConfidenceInterval95()
+    };
+  }
+  
   private async selectFinalCandidates(
-    allEvaluations: any[], 
+    allEvaluations: { point: { x: number; y: number }; es: number; ll: LL }[], 
     input: OptimizerInput, 
     signal: AbortSignal
   ): Promise<Candidate[]> {
-    // For now, return mock candidates - this would need proper implementation
-    // In real implementation, we'd re-evaluate best candidates with nFinal samples
-    return [
-      { lon: input.pin.lon - 0.001, lat: input.pin.lat + 0.001, es: 2.85, esCi95: 0.02 },
-      { lon: input.pin.lon - 0.0008, lat: input.pin.lat + 0.0012, es: 2.87, esCi95: 0.025 },
-      { lon: input.pin.lon - 0.0012, lat: input.pin.lat + 0.0008, es: 2.89, esCi95: 0.03 }
-    ];
+    console.log('🎯 selectFinalCandidates called with', allEvaluations.length, 'evaluations');
+    
+    if (allEvaluations.length === 0) {
+      console.warn('⚠️ No evaluations to select candidates from');
+      return [];
+    }
+    
+    // Sort all evaluations by ES (ascending - lower is better)
+    allEvaluations.sort((a, b) => a.es - b.es);
+    console.log('🎯 Best evaluation ES:', allEvaluations[0]?.es);
+    
+    // Select top candidates with spatial separation
+    const candidates: Candidate[] = [];
+    const minSeparationM = input.constraints?.minSeparationMeters || 2.74; // ~3 yards
+    const maxCandidates = 5; // Return top 5 candidates
+    
+    for (const evaluation of allEvaluations) {
+      if (candidates.length >= maxCandidates) break;
+      if (signal.aborted) throw new Error('Optimization aborted');
+      
+      // Check minimum separation from existing candidates
+      let tooClose = false;
+      for (const existing of candidates) {
+        const distance = this.calculateDistance(evaluation.ll, { lon: existing.lon, lat: existing.lat });
+        if (distance < minSeparationM) {
+          tooClose = true;
+          break;
+        }
+      }
+      
+      if (!tooClose) {
+        // Re-evaluate with higher sample count for final result
+        const finalES = await this.evaluateAimPointFinal(evaluation.ll, input, signal);
+        
+        candidates.push({
+          lon: evaluation.ll.lon,
+          lat: evaluation.ll.lat,
+          es: finalES.mean,
+          esCi95: finalES.ci95
+        });
+      }
+    }
+    
+    // Ensure we have at least the best candidate even if no spatial separation
+    if (candidates.length === 0 && allEvaluations.length > 0) {
+      console.log('🎯 No spatially separated candidates, using best evaluation');
+      const best = allEvaluations[0];
+      const finalES = await this.evaluateAimPointFinal(best.ll, input, signal);
+      
+      candidates.push({
+        lon: best.ll.lon,
+        lat: best.ll.lat,
+        es: finalES.mean,
+        esCi95: finalES.ci95
+      });
+    }
+    
+    console.log('🎯 selectFinalCandidates returning', candidates.length, 'candidates:', candidates);
+    return candidates;
   }
   
   private sampleEllipse(center: LL, semiMajorM: number, semiMinorM: number, bearing: number): LL {
@@ -308,6 +429,18 @@ export class CEMOptimizer implements OptimizerStrategy {
     const dx = (point2.lon - point1.lon) * M_PER_DEG_LAT * Math.cos(point1.lat * Math.PI / 180);
     const dy = (point2.lat - point1.lat) * M_PER_DEG_LAT;
     return Math.sqrt(dx * dx + dy * dy);
+  }
+  
+  private sampleUniformDisk(maxRadiusM: number): { x: number; y: number } {
+    // Uniform sampling in disk using rejection sampling
+    let x: number, y: number, dist: number;
+    do {
+      x = (Math.random() * 2 - 1) * maxRadiusM;
+      y = (Math.random() * 2 - 1) * maxRadiusM;
+      dist = Math.sqrt(x * x + y * y);
+    } while (dist > maxRadiusM);
+    
+    return { x, y };
   }
   
   private classIdToCondition(classId: number): 'green'|'fairway'|'rough'|'sand'|'recovery'|'water' {

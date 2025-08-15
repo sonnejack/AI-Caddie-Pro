@@ -81,7 +81,7 @@ export default function HoleNavigator({
         throw {
           code: 'MISSING_HOLE_POLYLINE',
           holeId: holeRef,
-          message: `Hole polyline for hole ${holeNumber} not found`
+          message: `Hole polyline for hole ${holeNumber} not found. Have you selected a course?`
         };
       }
       

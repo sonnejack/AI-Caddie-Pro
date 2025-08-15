@@ -74,8 +74,20 @@ export function sanitizeMaskBuffer(mask: ImageData) {
   const d = mask.data;
   for (let i=0;i<d.length;i+=4) {
     const cls = d[i] | 0;
+    const r = d[i];
+    const g = d[i+1]; 
+    const b = d[i+2];
+    
+    // Handle anti-aliasing artifacts - if we have a light/white pixel that's not a valid class,
+    // check if it's likely an edge artifact and convert to appropriate class
     if (!ALLOWED_CLASSES.has(cls)) {
-      d[i] = CLASS.ROUGH; d[i+1]=0; d[i+2]=0; d[i+3]=255;
+      // If it's a very light pixel (potential anti-aliasing artifact), default to rough
+      if (r > 200 && g > 200 && b > 200) {
+        d[i] = CLASS.ROUGH; d[i+1]=0; d[i+2]=0; d[i+3]=255;
+      } else {
+        // For other invalid classes, also default to rough
+        d[i] = CLASS.ROUGH; d[i+1]=0; d[i+2]=0; d[i+3]=255;
+      }
     }
   }
 }
