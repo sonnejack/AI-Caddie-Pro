@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CONDITION_COLORS } from '../../lib/types';
@@ -12,6 +13,8 @@ const conditionTypes = [
 ];
 
 export default function ConditionDrawer() {
+  const [isCollapsed, setIsCollapsed] = useState(true);
+
   const handleDrawCondition = (conditionType: string) => {
     // TODO: Implement polygon drawing functionality
     console.log(`Drawing ${conditionType} condition`);
@@ -24,35 +27,47 @@ export default function ConditionDrawer() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-lg font-semibold text-secondary">Drawing Tools</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {conditionTypes.map((condition) => (
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg font-semibold text-secondary">Drawing Tools</CardTitle>
           <Button
-            key={condition.name}
-            variant="outline"
-            className="w-full justify-between p-3 h-auto hover:bg-slate-50 transition-colors"
-            onClick={() => handleDrawCondition(condition.name)}
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="h-8 w-8 p-0"
           >
-            <div className="flex items-center space-x-3">
-              <div className={`w-4 h-4 rounded ${condition.color}`} />
-              <span className="text-sm font-medium">{condition.name}</span>
-            </div>
-            <i className="fas fa-pencil-alt text-gray-400"></i>
-          </Button>
-        ))}
-
-        <div className="pt-4 border-t border-slate-200">
-          <Button 
-            variant="outline" 
-            className="w-full"
-            onClick={handleClearAll}
-          >
-            <i className="fas fa-eraser mr-2"></i>Clear All
+            <i className={`fas ${isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'} text-gray-500`}></i>
           </Button>
         </div>
-      </CardContent>
+      </CardHeader>
+      {!isCollapsed && (
+        <CardContent className="space-y-3">
+          {conditionTypes.map((condition) => (
+            <Button
+              key={condition.name}
+              variant="outline"
+              className="w-full justify-between p-3 h-auto hover:bg-slate-50 transition-colors"
+              onClick={() => handleDrawCondition(condition.name)}
+            >
+              <div className="flex items-center space-x-3">
+                <div className={`w-4 h-4 rounded ${condition.color}`} />
+                <span className="text-sm font-medium">{condition.name}</span>
+              </div>
+              <i className="fas fa-pencil-alt text-gray-400"></i>
+            </Button>
+          ))}
+
+          <div className="pt-4 border-t border-slate-200">
+            <Button 
+              variant="outline" 
+              className="w-full"
+              onClick={handleClearAll}
+            >
+              <i className="fas fa-eraser mr-2"></i>Clear All
+            </Button>
+          </div>
+        </CardContent>
+      )}
     </Card>
   );
 }

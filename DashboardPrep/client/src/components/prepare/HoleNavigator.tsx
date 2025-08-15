@@ -1,7 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { type Hole } from '@shared/schema';
 import type { LatLon } from '@shared/types';
@@ -47,7 +45,6 @@ export default function HoleNavigator({
     yards: holePolylinesByRef.get(ref)?.dist || null,
     handicap: null
   })) : [];
-  const isLoading = false;
 
   const currentHoleData = holes?.find(h => h.number === currentHole);
 
@@ -215,9 +212,16 @@ export default function HoleNavigator({
             >
               <i className="fas fa-chevron-left"></i>
             </Button>
-            <span className="text-sm font-medium text-secondary min-w-[60px] text-center">
-              Hole {currentHole}
-            </span>
+            <div className="text-center min-w-[60px]">
+              <span className="text-sm font-medium text-secondary">
+                Hole {currentHole}
+              </span>
+              {currentHoleData && (
+                <div className="text-xs text-gray-500">
+                  Par {currentHoleData.par}
+                </div>
+              )}
+            </div>
             <Button
               variant="ghost"
               size="icon"
@@ -255,57 +259,6 @@ export default function HoleNavigator({
           ))}
         </div>
 
-        {/* Hole Details */}
-        {isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="flex justify-between">
-                <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-4 w-8" />
-              </div>
-            ))}
-          </div>
-        ) : currentHoleData ? (
-          <div className="text-sm space-y-2">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Par:</span>
-              <span className="font-medium">{currentHoleData.par}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Yards:</span>
-              <span className="font-medium">{currentHoleData.yards}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Handicap:</span>
-              <span className="font-medium">{currentHoleData.handicap}</span>
-            </div>
-            
-            {/* Polyline Status */}
-            <div className="flex justify-between">
-              <span className="text-gray-600">Polyline:</span>
-              <span className={`font-medium text-xs ${holePolylinesByRef?.has(currentHole.toString()) ? 'text-green-600' : 'text-red-600'}`}>
-                {holePolylinesByRef?.has(currentHole.toString()) ? 'Available' : 'Missing'}
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="text-sm text-gray-500 text-center py-4">
-            No hole data available
-          </div>
-        )}
-
-
-        {/* Manual Navigation Button */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full"
-          onClick={() => handleHoleNavigation(currentHole)}
-          disabled={!holePolylinesByRef?.has(currentHole.toString()) || !holeFeatures}
-        >
-          <i className="fas fa-route mr-2"></i>
-          Navigate to Hole
-        </Button>
       </CardContent>
     </Card>
   );

@@ -274,51 +274,7 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
           </div>
         </div>
 
-        {/* Condition Breakdown */}
-        {metrics.conditionBreakdown.length > 0 && (
-          <div className="pt-4 border-t border-slate-200">
-            <h4 className="text-sm font-medium text-secondary mb-3">Landing Conditions</h4>
-            <div className="space-y-2">
-              {metrics.conditionBreakdown.map((condition, index) => (
-                <div key={index} className="flex items-center space-x-3">
-                  {/* Condition label */}
-                  <div className="flex-shrink-0 w-16 text-xs text-gray-600 text-right">
-                    {condition.condition}
-                  </div>
-                  
-                  {/* Bar container */}
-                  <div className="flex-1 bg-gray-200 rounded-full h-4 relative overflow-hidden">
-                    {/* Filled bar */}
-                    <div
-                      className={`h-full ${condition.color} transition-all duration-300 ease-out`}
-                      style={{ width: `${condition.percentage}%` }}
-                    />
-                    
-                    {/* Percentage text overlay */}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-xs font-medium text-gray-800 drop-shadow-sm">
-                        {condition.percentage}%
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* Count */}
-                  <div className="flex-shrink-0 w-8 text-xs text-gray-500 text-left">
-                    {condition.count}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {/* Empty State */}
-        {metrics.totalDistance === 0 && (
-          <div className="text-center py-8 text-gray-500">
-            <i className="fas fa-chart-bar text-4xl mb-4 opacity-30"></i>
-            <p className="text-sm">Set start and pin positions to view metrics</p>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

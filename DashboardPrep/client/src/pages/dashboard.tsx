@@ -265,9 +265,9 @@ export default function Dashboard() {
 
   // PrepareTab content rendered inline to avoid component recreation
   const prepareTabContent = (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mobile-stack">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mobile-stack">
       {/* Left Sidebar */}
-      <div className="lg:col-span-1 space-y-6">
+      <div className="lg:col-span-3 space-y-6">
         <CoursePicker 
           selectedCourseId={courseId || null} 
           onCourseSelect={handleCourseSelect}
@@ -323,7 +323,7 @@ export default function Dashboard() {
       </div>
 
       {/* Center - 3D Canvas */}
-      <div className="lg:col-span-2">
+      <div className="lg:col-span-6">
         <CesiumCanvas 
           state={state}
           onPointSet={setPoint}
@@ -373,7 +373,7 @@ export default function Dashboard() {
       </div>
 
       {/* Right Sidebar */}
-      <div className="lg:col-span-1 space-y-6">
+      <div className="lg:col-span-3 space-y-6">
         <AimPanel 
           state={state}
           onPointSet={setPoint}
@@ -415,16 +415,53 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
+      {/* Header with Tabs */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-8">
               <div className="flex items-center space-x-2">
                 <i className="fas fa-golf-ball text-primary text-xl"></i>
                 <h1 className="text-xl font-bold text-secondary">Golf Analytics Pro</h1>
               </div>
+              
+              {/* Tabs in Header */}
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
+                <TabsList className="grid grid-cols-5 bg-transparent h-auto p-0">
+                  <TabsTrigger 
+                    value="prepare" 
+                    className="tab-button flex items-center justify-center whitespace-nowrap py-2 px-3 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
+                  >
+                    <i className="fas fa-map-marked-alt mr-2"></i>Prepare
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="play"
+                    className="tab-button flex items-center justify-center whitespace-nowrap py-2 px-3 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
+                  >
+                    <i className="fas fa-play mr-2"></i>Play
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="stats"
+                    className="tab-button flex items-center justify-center whitespace-nowrap py-2 px-3 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
+                  >
+                    <i className="fas fa-chart-bar mr-2"></i>Stats
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="trends"
+                    className="tab-button flex items-center justify-center whitespace-nowrap py-2 px-3 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
+                  >
+                    <i className="fas fa-chart-line mr-2"></i>Trends
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="dispersion"
+                    className="tab-button flex items-center justify-center whitespace-nowrap py-2 px-3 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
+                  >
+                    <i className="fas fa-bullseye mr-2"></i>Dispersion
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
             </div>
+            
             <div className="flex items-center space-x-4">
               <Button variant="ghost" size="icon">
                 <i className="fas fa-bell text-lg"></i>
@@ -440,68 +477,30 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Tab Navigation */}
-      <div className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-5 bg-transparent h-auto p-0">
-              <TabsTrigger 
-                value="prepare" 
-                className="tab-button flex items-center justify-center whitespace-nowrap py-4 px-1 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
-              >
-                <i className="fas fa-map-marked-alt mr-2"></i>Prepare
-              </TabsTrigger>
-              <TabsTrigger 
-                value="play"
-                className="tab-button flex items-center justify-center whitespace-nowrap py-4 px-1 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
-              >
-                <i className="fas fa-play mr-2"></i>Play
-              </TabsTrigger>
-              <TabsTrigger 
-                value="stats"
-                className="tab-button flex items-center justify-center whitespace-nowrap py-4 px-1 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
-              >
-                <i className="fas fa-chart-bar mr-2"></i>Stats
-              </TabsTrigger>
-              <TabsTrigger 
-                value="trends"
-                className="tab-button flex items-center justify-center whitespace-nowrap py-4 px-1 border-b-2 border-transparent data-[state=active]:border-primary data-[state=color]:text-primary font-medium text-sm"
-              >
-                <i className="fas fa-chart-line mr-2"></i>Trends
-              </TabsTrigger>
-              <TabsTrigger 
-                value="dispersion"
-                className="tab-button flex items-center justify-center whitespace-nowrap py-4 px-1 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
-              >
-                <i className="fas fa-bullseye mr-2"></i>Dispersion
-              </TabsTrigger>
-            </TabsList>
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsContent value="prepare" className="mt-0">
+            {prepareTabContent}
+          </TabsContent>
 
-            {/* Main Content */}
-            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-              <TabsContent value="prepare" className="mt-0">
-                {prepareTabContent}
-              </TabsContent>
+          <TabsContent value="play" className="mt-0">
+            {prepareTabContent}
+          </TabsContent>
 
-              <TabsContent value="play" className="mt-0">
-                {prepareTabContent}
-              </TabsContent>
+          <TabsContent value="stats" className="mt-0">
+            <StatsTab />
+          </TabsContent>
 
-              <TabsContent value="stats" className="mt-0">
-                <StatsTab />
-              </TabsContent>
+          <TabsContent value="trends" className="mt-0">
+            <TrendsTab />
+          </TabsContent>
 
-              <TabsContent value="trends" className="mt-0">
-                <TrendsTab />
-              </TabsContent>
-
-              <TabsContent value="dispersion" className="mt-0">
-                <DispersionTab />
-              </TabsContent>
-            </main>
-          </Tabs>
-        </div>
-      </div>
+          <TabsContent value="dispersion" className="mt-0">
+            <DispersionTab />
+          </TabsContent>
+        </Tabs>
+      </main>
     </div>
   );
 }

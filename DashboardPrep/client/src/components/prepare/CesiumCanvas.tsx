@@ -1162,11 +1162,11 @@ function CesiumCanvas({
               <span>Elevation: <span className="font-medium">245ft</span></span>
               <span>Zoom: <span className="font-medium">15x</span></span>
             </div>
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-1">
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 px-2 text-xs"
+                className="h-6 px-2 text-xs flex-1"
                 onClick={() => handleCameraPreset('overview')}
                 disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
               >
@@ -1175,7 +1175,7 @@ function CesiumCanvas({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 px-2 text-xs"
+                className="h-6 px-2 text-xs flex-1"
                 onClick={() => handleCameraPreset('tee')}
                 disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
               >
@@ -1184,7 +1184,7 @@ function CesiumCanvas({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 px-2 text-xs"
+                className="h-6 px-2 text-xs flex-1"
                 onClick={() => handleCameraPreset('fairway')}
                 disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
               >
@@ -1193,7 +1193,7 @@ function CesiumCanvas({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 px-2 text-xs"
+                className="h-6 px-2 text-xs flex-1"
                 onClick={() => handleCameraPreset('green')}
                 disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
               >

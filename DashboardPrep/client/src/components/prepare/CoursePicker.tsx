@@ -11,6 +11,15 @@ interface CuratedCourse {
   osm: { seeds: string[] };
 }
 
+// Helper function to parse course name and location
+function parseCourseName(fullName: string): { name: string; location: string } {
+  const match = fullName.match(/^(.+?)\s*\((.+?)\)$/);
+  if (match) {
+    return { name: match[1].trim(), location: match[2].trim() };
+  }
+  return { name: fullName, location: '' };
+}
+
 interface CoursePickerProps {
   selectedCourseId: string | null;
   onCourseSelect: (course: CuratedCourse) => void;
@@ -60,7 +69,10 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
       >
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg font-semibold text-secondary">
-            {selectedCourseId && isCollapsed ? (selectedCourse?.name || 'Loading...') : 'Select Course'}
+            {selectedCourseId && isCollapsed ? 
+              (selectedCourse ? parseCourseName(selectedCourse.name).name : 'Loading...') : 
+              'Select Course'
+            }
           </CardTitle>
           <Button 
             variant="ghost" 
@@ -97,7 +109,7 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
         </div>
 
         {/* Course List */}
-        <div className="space-y-3">
+        <div className="space-y-2">
           {isLoading ? (
             // Loading skeleton
             Array.from({ length: 3 }).map((_, i) => (
@@ -120,24 +132,30 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
             </div>
           ) : (
             // Curated courses
-            courses?.map((course) => (
-              <div
-                key={course.id}
-                className={`p-3 border rounded-lg hover:bg-slate-50 cursor-pointer transition-colors ${
-                  selectedCourseId === course.id ? 'border-primary bg-primary/5' : 'border-slate-200'
-                }`}
-                onClick={() => onCourseSelect(course)}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium text-secondary text-sm">{course.name}</h4>
+            courses?.map((course) => {
+              const { name, location } = parseCourseName(course.name);
+              return (
+                <div
+                  key={course.id}
+                  className={`p-2 border rounded-lg hover:bg-slate-50 cursor-pointer transition-colors ${
+                    selectedCourseId === course.id ? 'border-primary bg-primary/5' : 'border-slate-200'
+                  }`}
+                  onClick={() => onCourseSelect(course)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-secondary text-sm leading-tight">{name}</h4>
+                      {location && (
+                        <p className="text-xs text-gray-500 mt-0.5">{location}</p>
+                      )}
+                    </div>
+                    <Badge variant="secondary" className="bg-blue-100 text-blue-700 ml-2">
+                      Curated
+                    </Badge>
                   </div>
-                  <Badge variant="secondary" className="bg-blue-100 text-blue-700">
-                    Curated
-                  </Badge>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
         </CardContent>

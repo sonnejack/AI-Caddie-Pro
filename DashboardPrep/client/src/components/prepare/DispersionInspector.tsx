@@ -283,15 +283,35 @@ export default function DispersionInspector({
 
   const canEvaluate = start && aim && pin;
 
-  const getStatusBadge = () => {
-    switch (status) {
-      case 'sampling':
-        return <Badge variant="secondary" className="bg-blue-100 text-blue-800">Sampling</Badge>;
-      case 'converged':
-        return <Badge variant="secondary" className="bg-green-100 text-green-800">Converged</Badge>;
-      default:
-        return <Badge variant="secondary" className="bg-gray-100 text-gray-600">Idle</Badge>;
-    }
+  // Calculate condition breakdown from ES result
+  const calculateConditionBreakdown = () => {
+    if (!esResult?.countsByClass) return [];
+    
+    const totalSamples = esResult.n || 0;
+    if (totalSamples === 0) return [];
+    
+    // Map class IDs to conditions with colors
+    const conditionMapping = [
+      { classId: 6, condition: 'Fairway', color: 'bg-lime-500' },
+      { classId: 5, condition: 'Green', color: 'bg-green-400' },
+      { classId: 8, condition: 'Rough', color: 'bg-yellow-600' },
+      { classId: 4, condition: 'Bunker', color: 'bg-yellow-300' },
+      { classId: 2, condition: 'Water', color: 'bg-blue-500' },
+      { classId: 3, condition: 'Hazard', color: 'bg-red-500' },
+      { classId: 1, condition: 'OB', color: 'bg-gray-600' },
+      { classId: 7, condition: 'Recovery', color: 'bg-purple-500' },
+      { classId: 9, condition: 'Tee', color: 'bg-cyan-400' },
+      { classId: 0, condition: 'Unknown', color: 'bg-gray-400' }
+    ];
+
+    return conditionMapping
+      .map(({ classId, condition, color }) => {
+        const count = esResult.countsByClass[classId as keyof typeof esResult.countsByClass] || 0;
+        const percentage = Math.round((count / totalSamples) * 100);
+        return { condition, percentage, count, color };
+      })
+      .filter(item => item.count > 0) // Only show conditions that have samples
+      .sort((a, b) => b.percentage - a.percentage); // Sort by percentage descending
   };
 
   return (
@@ -319,57 +339,41 @@ export default function DispersionInspector({
           </div>
         </div>
 
-        {/* Evaluate Button */}
-        <Button
-          className="w-full"
-          onClick={runESEvaluation}
-          disabled={!canEvaluate || status === 'sampling'}
-        >
-          <i className="fas fa-calculator mr-2"></i>
-          Evaluate ES
-        </Button>
-
-        {/* Sampling Info */}
-        {status !== 'idle' && (
+        {/* Landing Conditions */}
+        {esResult && esResult.countsByClass && (
           <div>
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Monte Carlo Sampling</h4>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Samples:</span>
-                <span className="font-medium">{sampleCount.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Confidence:</span>
-                <span className="font-medium">±{confidence === Infinity ? '∞' : confidence.toFixed(3)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Status:</span>
-                {getStatusBadge()}
-              </div>
-              {esResult && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Expected Strokes:</span>
-                  <span className="font-medium">{esResult.mean.toFixed(3)} ± {esResult.ci95.toFixed(3)}</span>
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Landing Conditions</h4>
+            <div className="space-y-1.5">
+              {calculateConditionBreakdown().map((condition, index) => (
+                <div key={index} className="flex items-center space-x-2">
+                  {/* Condition label */}
+                  <div className="flex-shrink-0 w-12 text-xs text-gray-600 text-right">
+                    {condition.condition}
+                  </div>
+                  
+                  {/* Bar container */}
+                  <div className="flex-1 bg-gray-200 rounded-full h-3 relative overflow-hidden">
+                    {/* Filled bar */}
+                    <div
+                      className={`h-full ${condition.color} transition-all duration-300 ease-out`}
+                      style={{ width: `${condition.percentage}%` }}
+                    />
+                    
+                    {/* Percentage text overlay */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-xs font-medium text-gray-800 drop-shadow-sm">
+                        {condition.percentage}%
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* Count */}
+                  <div className="flex-shrink-0 w-6 text-xs text-gray-500 text-left">
+                    {condition.count}
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
-          </div>
-        )}
-
-        {/* Progress Bar */}
-        {status === 'sampling' && (
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-xs text-gray-600">Sampling Progress</span>
-              <span className="text-xs text-gray-600">{Math.floor(samplingProgress)}%</span>
-            </div>
-            <Progress value={samplingProgress} className="h-2" />
-          </div>
-        )}
-
-        {status === 'idle' && (
-          <div className="text-center py-4 text-sm text-gray-500">
-            Set start, aim, and pin points to begin analysis
           </div>
         )}
       </CardContent>
