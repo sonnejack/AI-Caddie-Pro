@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import CoursePicker from '../components/prepare/CoursePicker';
@@ -8,9 +8,7 @@ import ConditionDrawer from '../components/prepare/ConditionDrawer';
 import AimPanel from '../components/prepare/AimPanel';
 import DispersionInspector from '../components/prepare/DispersionInspector';
 import OptimizerPanel from '../components/prepare/OptimizerPanel';
-import ShotMetrics from '../components/prepare/ShotMetrics';
 import MetricsBar from '../components/prepare/MetricsBar';
-import VectorLayerPanel from '../components/prepare/VectorLayerPanel';
 import StatsTab from '../components/placeholders/StatsTab';
 import TrendsTab from '../components/placeholders/TrendsTab';
 import DispersionTab from '../components/placeholders/DispersionTab';
@@ -42,20 +40,13 @@ export default function Dashboard() {
   const [vectorFeatures, setVectorFeatures] = useState<any>(null);
   const [holePolylines, setHolePolylines] = useState<any[]>([]);
   const [holePolylinesByRef, setHolePolylinesByRef] = useState<Map<string, any>>(new Map());
-  const [vectorLayerToggles, setVectorLayerToggles] = useState<Record<string, boolean>>({
-    polylines: true,
-    greens: false,
-    fairways: false,
-    bunkers: false,
-    water: false,
-    hazards: false,
-    ob: false
-  });
   const [cesiumViewerRef, setCesiumViewerRef] = useState<any>(null);
+  const [courseNavigationInitialized, setCourseNavigationInitialized] = useState(false);
   const {
     courseId, holeId, setCourseId, setHoleId,
     start, setStart, pin, setPin, aim, setAim,
     skill, setSkill, maxCarry, setMaxCarry,
+    sampleCount, setSampleCount,
     mask, setMask, maskBuffer, setMaskBuffer,
     es, setEs, best, setBest,
     selectionMode, setSelectionMode
@@ -116,16 +107,29 @@ export default function Dashboard() {
     dispatch({ type: 'HOLE_CHANGED', payload: { holeId, holeNumber } });
   };
 
+  // Auto-navigate to hole 1 when course is first loaded
+  useEffect(() => {
+    if (courseId && 
+        holePolylinesByRef?.size > 0 && 
+        vectorFeatures && 
+        cesiumViewerRef && 
+        !courseNavigationInitialized) {
+      
+      console.log('🎯 Auto-navigating to hole 1 after course load');
+      setCourseNavigationInitialized(true);
+      
+      // Trigger hole navigation programmatically 
+      // Use a small delay to ensure everything is ready
+      setTimeout(() => {
+        changeHole(1);
+      }, 500);
+    }
+  }, [courseId, holePolylinesByRef, vectorFeatures, cesiumViewerRef, courseNavigationInitialized, changeHole]);
+
   const handleSkillChange = (newSkill: typeof SKILL_PRESETS[0]) => {
     setSkill(newSkill);
   };
 
-  const handleVectorLayerToggle = (layerType: string, enabled: boolean) => {
-    setVectorLayerToggles(prev => ({
-      ...prev,
-      [layerType]: enabled
-    }));
-  };
 
   const handleCourseSelect = async (course: { id: string; name: string; osm: { seeds: string[] } }) => {
     try {
@@ -193,6 +197,9 @@ export default function Dashboard() {
       setCourseId(course.id);
       setHoleId(`${course.id}-hole-1`);
       setCurrentHole(1);
+      
+      // Reset navigation flag so auto-navigation can trigger
+      setCourseNavigationInitialized(false);
       
       // Set mask metadata (compatible with existing code)
       setMask(prev => ({
@@ -298,18 +305,18 @@ export default function Dashboard() {
               if (points.aim) setAim(points.aim);
               if (points.pin) setPin(points.pin);
               
+              console.log('✅ Hole navigation complete for hole', currentHole);
+              
             } catch (error) {
               console.warn('⚠️ Some elevation sampling failed, setting points anyway:', error);
               // Set points even if elevation sampling fails
               if (points.start) setStart(points.start);
               if (points.aim) setAim(points.aim);
               if (points.pin) setPin(points.pin);
+              
+              console.log('✅ Hole navigation complete for hole', currentHole, '(with elevation warnings)');
             }
           }}
-        />
-        <VectorLayerPanel 
-          onLayerToggle={handleVectorLayerToggle}
-          availableFeatures={vectorFeatures}
         />
         
         <ConditionDrawer />
@@ -323,9 +330,14 @@ export default function Dashboard() {
           maskBuffer={maskBuffer}
           esResult={esResult}
           vectorFeatures={vectorFeatures}
-          vectorLayerToggles={vectorLayerToggles}
           loadingCourse={loadingCourse}
           loadingProgress={loadingProgress}
+          nSamples={sampleCount}
+          onSampleCountChange={setSampleCount}
+          holePolylinesByRef={holePolylinesByRef}
+          holeFeatures={vectorFeatures}
+          currentHole={currentHole}
+          pinLocation={pin}
           onViewerReady={setCesiumViewerRef}
           onESWorkerCall={async (params) => {
             // Create worker and call it with the params
@@ -375,15 +387,12 @@ export default function Dashboard() {
           skill={skill}
           mask={mask}
           maskBuffer={maskBuffer}
+          sampleCount={sampleCount}
           onESResult={(result) => {
             setEs(result);
             // Cast the result to include typed arrays for CesiumCanvas
             setESResult(result as any);
           }}
-        />
-        <ShotMetrics 
-          esResult={esResult}
-          status={esResult ? 'converged' : 'idle'}
         />
         <OptimizerPanel 
           viewer={cesiumViewerRef}
@@ -393,6 +402,8 @@ export default function Dashboard() {
           skill={skill}
           maxCarry={maxCarry}
           maskBuffer={maskBuffer}
+          sampleCount={sampleCount}
+          onSampleCountChange={setSampleCount}
           onAimSet={setAim}
           onOptimizationComplete={(candidates) => {
             console.log('🎯 Optimization complete:', candidates.length, 'candidates');

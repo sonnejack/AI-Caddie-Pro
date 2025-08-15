@@ -1,10 +1,10 @@
-// @ts-ignore legacy JS module - handle both CommonJS and ESM
-import ExpectedStrokesEngineClass from "./expected-strokes.js";
+// Import the Expected Strokes engine class
+import ExpectedStrokesEngine from "./expected-strokes.js";
 
 type CourseCondition = "green"|"fairway"|"rough"|"sand"|"recovery"|"water";
 
 // Create instance of the engine
-const strokesEngine = new ExpectedStrokesEngineClass();
+const strokesEngine = new ExpectedStrokesEngine();
 
 export const ES = {
   calculate(distanceYds: number, cond: CourseCondition): number {

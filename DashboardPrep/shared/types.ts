@@ -25,7 +25,7 @@ export type MaskMeta = {
   paletteVersion: number;
 };
 
-export type ClassId = 0|1|2|3|4|5|6|7|8; // 0 unk, 1 OB, 2 Water, 3 Hazard, 4 Bunker, 5 Green, 6 Fairway, 7 Recovery, 8 Rough
+export type ClassId = 0|1|2|3|4|5|6|7|8|9; // 0 unk, 1 OB, 2 Water, 3 Hazard, 4 Bunker, 5 Green, 6 Fairway, 7 Recovery, 8 Rough, 9 TEE
 
 export type ESBreakdown = Record<ClassId, number>;
 

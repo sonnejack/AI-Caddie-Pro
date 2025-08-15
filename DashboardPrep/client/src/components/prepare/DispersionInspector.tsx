@@ -8,6 +8,7 @@ import type { MaskBuffer } from '@/lib/maskBuffer';
 import { ellipseAxes, uniformPointInEllipse, rotateTranslate, metersToLatLon, latLonToMeters } from '../../prepare/lib/ellipse';
 import { sampleClassFromMask } from '@/lib/maskBuffer';
 import { MaskBufferAdapter } from '@/lib/maskAdapter';
+import { ES } from '@shared/expectedStrokesAdapter';
 
 interface DispersionInspectorProps {
   start?: LatLon;
@@ -16,14 +17,15 @@ interface DispersionInspectorProps {
   skill: SkillPreset;
   mask?: MaskMeta;
   maskBuffer?: MaskBuffer;
+  sampleCount?: number;
   onESResult?: (result: ESResult & { samplePoints?: Array<{point: LatLon, classId: number}>, avgProximity?: number, avgProximityInPlay?: number }) => void;
 }
 
 export default function DispersionInspector({ 
-  start, aim, pin, skill, mask, maskBuffer, onESResult 
+  start, aim, pin, skill, mask, maskBuffer, sampleCount = 600, onESResult 
 }: DispersionInspectorProps) {
   const [samplingProgress, setSamplingProgress] = useState(0);
-  const [sampleCount, setSampleCount] = useState(0);
+  const [processedSamples, setProcessedSamples] = useState(0);
   const [confidence, setConfidence] = useState(Infinity);
   const [status, setStatus] = useState<'idle' | 'sampling' | 'converged'>('idle');
   const [ellipseDimensions, setEllipseDimensions] = useState({ a: 0, b: 0 });
@@ -119,12 +121,12 @@ export default function DispersionInspector({
 
     setStatus('sampling');
     setSamplingProgress(0);
-    setSampleCount(0);
+    setProcessedSamples(0);
     setConfidence(Infinity);
 
     const { a, b } = ellipseAxes(calculateDistance(start, aim), skill.offlineDeg, skill.distPct);
-    // Use fixed number of samples (remove Monte Carlo convergence)
-    const numberOfSamples = 600; // Default slider value
+    // Use sample count from props (controlled by UI slider)
+    const numberOfSamples = sampleCount;
     console.log('🎯 Using', numberOfSamples, 'sample points for dispersion analysis');
     
     // Generate points
@@ -151,17 +153,27 @@ export default function DispersionInspector({
       const distanceToPin = calculateDistance(point, pin);
       const distanceFromTee = calculateDistance(start!, point);
       
-      // Map class to condition for ES calculation
-      const condition = 
-        classId === 5 ? "green" :
-        classId === 6 ? "fairway" :
-        classId === 4 ? "sand" :
-        classId === 7 ? "recovery" :
-        classId === 2 ? "water" :
-        "rough";
+      // Map class to condition and calculate penalty for ES calculation
+      let condition: "green"|"fairway"|"rough"|"sand"|"recovery"|"water";
+      let penalty = 0;
+      
+      switch (classId) {
+        case 0: condition = "rough"; penalty = 0; break; // UNKNOWN -> rough
+        case 1: condition = "rough"; penalty = 2; break; // OB -> rough + 2
+        case 2: condition = "water"; penalty = 0; break; // WATER (already includes +1 in engine)
+        case 3: condition = "rough"; penalty = 1; break; // HAZARD -> rough + 1
+        case 4: condition = "sand"; penalty = 0; break;  // BUNKER -> sand
+        case 5: condition = "green"; penalty = 0; break; // GREEN
+        case 6: condition = "fairway"; penalty = 0; break; // FAIRWAY
+        case 7: condition = "recovery"; penalty = 0; break; // RECOVERY
+        case 8: condition = "rough"; penalty = 0; break; // ROUGH
+        case 9: condition = "fairway"; penalty = 0; break; // TEE -> fairway
+        default: condition = "rough"; penalty = 0; break;
+      }
 
-      // Calculate Expected Strokes (we'll implement this properly)
-      const es = 2.0 + (distanceToPin / 100); // Placeholder - need real ES calculation
+      // Calculate Expected Strokes using the correct engine
+      const baseES = ES.calculate(distanceToPin, condition);
+      const es = baseES + penalty;
       esResults.push(es);
       
       totalDistance += distanceToPin;
@@ -184,19 +196,27 @@ export default function DispersionInspector({
     const avgProximity = totalDistance / numberOfSamples;
     const avgProximityInPlay = inPlayCount > 0 ? inPlayDistance / inPlayCount : avgProximity;
 
+    // Create proper ESBreakdown with all class IDs
+    const countsByClass: Record<ClassId, number> = {
+      0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0
+    };
+    
+    classes.forEach(cls => {
+      if (cls >= 0 && cls <= 9) {
+        countsByClass[cls as ClassId]++;
+      }
+    });
+
     const result = {
       mean: meanES,
       ci95: 0.05, // Placeholder
       n: numberOfSamples,
-      countsByClass: classes.reduce((counts, cls) => {
-        counts[cls] = (counts[cls] || 0) + 1;
-        return counts;
-      }, {} as Record<number, number>)
+      countsByClass
     };
 
     // Update UI
     setESResult(result);
-    setSampleCount(result.n);
+    setProcessedSamples(result.n);
     setConfidence(result.ci95);
     setSamplingProgress(100);
     setStatus('converged');
@@ -214,24 +234,26 @@ export default function DispersionInspector({
       avgProximity,
       avgProximityInPlay
     });
-  }, [aim, pin, start, skill, generateEllipsePoints, sampleClasses, onESResult]);
+  }, [aim, pin, start, skill, sampleCount, generateEllipsePoints, sampleClasses, onESResult]);
 
-  // Reset status to 'idle' when points change to allow auto-evaluation
+  // Reset status to 'idle' when points, skill, or sample count change to allow auto-evaluation
   useEffect(() => {
-    console.log('🔄 Point coordinates changed:', {
+    console.log('🔄 Parameters changed:', {
       start: start ? `(${start.lat.toFixed(6)}, ${start.lon.toFixed(6)})` : 'null',
       aim: aim ? `(${aim.lat.toFixed(6)}, ${aim.lon.toFixed(6)})` : 'null', 
-      pin: pin ? `(${pin.lat.toFixed(6)}, ${pin.lon.toFixed(6)})` : 'null'
+      pin: pin ? `(${pin.lat.toFixed(6)}, ${pin.lon.toFixed(6)})` : 'null',
+      skillName: skill.name,
+      sampleCount
     });
     
-    // Reset status to allow auto-evaluation when points change
+    // Reset status to allow auto-evaluation when parameters change
     if (start && aim && pin) {
       console.log('🔄 Resetting status to idle for auto-evaluation');
       setStatus('idle');
     }
-  }, [start, aim, pin]);
+  }, [start, aim, pin, skill, sampleCount]);
 
-  // Auto-evaluate when points change (debounced)
+  // Auto-evaluate when points, skill, or sample count change (debounced)
   useEffect(() => {
     console.log('🔄 Auto-evaluation useEffect triggered:', {
       hasStart: !!start,
@@ -239,6 +261,8 @@ export default function DispersionInspector({
       hasPin: !!pin,
       hasMaskBuffer: !!maskBuffer,
       status,
+      sampleCount,
+      skillName: skill.name,
       canEvaluate: start && aim && pin && maskBuffer && status === 'idle'
     });
     
@@ -255,7 +279,7 @@ export default function DispersionInspector({
     } else {
       console.log('❌ Auto-evaluation conditions not met');
     }
-  }, [start, aim, pin, skill, maskBuffer, runESEvaluation, status]);
+  }, [start, aim, pin, skill, sampleCount, maskBuffer, runESEvaluation, status]);
 
   const canEvaluate = start && aim && pin;
 

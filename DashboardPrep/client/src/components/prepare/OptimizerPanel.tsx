@@ -20,6 +20,8 @@ interface OptimizerPanelProps {
   maxCarry: number;
   maskBuffer?: MaskBuffer;
   heightGrid?: any; // Height grid data - only used for advanced short game analysis (not implemented yet)
+  sampleCount?: number; // Controlled sample count from parent
+  onSampleCountChange?: (count: number) => void; // Callback to update parent sample count
   onAimSet?: (aim: LatLon) => void; // Called when user clicks a candidate
   onOptimizationComplete?: (candidates: Candidate[]) => void;
 }
@@ -33,6 +35,8 @@ export default function OptimizerPanel({
   maxCarry, 
   maskBuffer,
   heightGrid,
+  sampleCount = 600,
+  onSampleCountChange,
   onAimSet,
   onOptimizationComplete
 }: OptimizerPanelProps) {
@@ -46,8 +50,10 @@ export default function OptimizerPanel({
   // Advanced parameters (with defaults)
   const [maxDistance, setMaxDistance] = useState(maxCarry);
   const [nEarly, setNEarly] = useState(250);
-  const [nFinal, setNFinal] = useState(600);
   const [ci95Stop, setCi95Stop] = useState(0.04);
+  
+  // Use controlled sample count from parent instead of local state
+  const nFinal = sampleCount;
 
   const workerRef = useRef<Worker | null>(null);
   const candidateLayerInitialized = useRef(false);
@@ -266,7 +272,7 @@ export default function OptimizerPanel({
                 id="nFinal"
                 type="number" 
                 value={nFinal} 
-                onChange={(e) => setNFinal(Number(e.target.value))}
+                onChange={(e) => onSampleCountChange?.(Number(e.target.value))}
                 min={300}
                 max={1000}
               />

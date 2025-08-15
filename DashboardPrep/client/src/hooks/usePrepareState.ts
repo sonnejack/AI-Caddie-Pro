@@ -10,6 +10,7 @@ export function usePrepareState(){
   const [aim, setAim] = useState<LatLon>();
   const [skill, setSkill] = useState<SkillPreset>({ name:"Elite Am", offlineDeg:5.9, distPct:4.7 });
   const [maxCarry, setMaxCarry] = useState<number>(280);
+  const [sampleCount, setSampleCount] = useState<number>(600);
   const [mask, setMask] = useState<MaskMeta>();
   const [maskBuffer, setMaskBuffer] = useState<MaskBuffer>();
   const [es, setEs] = useState<ESResult>();
@@ -20,6 +21,7 @@ export function usePrepareState(){
     courseId, holeId, setCourseId, setHoleId, 
     start, setStart, pin, setPin, aim, setAim, 
     skill, setSkill, maxCarry, setMaxCarry, 
+    sampleCount, setSampleCount,
     mask, setMask, maskBuffer, setMaskBuffer,
     es, setEs, best, setBest,
     selectionMode, setSelectionMode

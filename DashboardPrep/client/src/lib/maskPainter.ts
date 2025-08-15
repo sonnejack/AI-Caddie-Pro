@@ -40,7 +40,7 @@ export function createMaskFromFeatures(
 
   const { toPx } = makeDegToPxMapper(bbox, width, height);
 
-  // Clear to transparent (will be treated as ROUGH by sampler)
+  // Clear to transparent (class 0 -> converted to ROUGH by sampler)
   ctx.clearRect(0, 0, width, height);
 
   function fillFC(fc: GeoJSON.FeatureCollection, cls: number) {
@@ -76,7 +76,7 @@ export function createMaskFromFeatures(
     fillFC(features.tees, PAINT_CLASS.TEE);
   }
 
-  // Rough default: nothing to paint; sampler treats unknown as ROUGH
+  // Rough default: nothing to paint; sampler converts class 0 to ROUGH
   let imageData: ImageData;
   try {
     imageData = ctx.getImageData(0, 0, width, height);

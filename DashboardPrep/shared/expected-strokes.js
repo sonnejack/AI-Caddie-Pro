@@ -246,7 +246,10 @@ class ExpectedStrokesEngine {
   }
 }
 
-// Export for module use
+// Export for ES modules
+export default ExpectedStrokesEngine;
+
+// Export for CommonJS (Node.js compatibility)
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = ExpectedStrokesEngine;
 }

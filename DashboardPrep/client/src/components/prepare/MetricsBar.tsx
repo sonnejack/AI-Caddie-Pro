@@ -1,19 +1,20 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PrepareState } from '../../lib/types';
-import { strokesEngine } from '../../lib/expectedStrokes';
+import { ES } from '@shared/expectedStrokesAdapter';
 import { getValidatedElevations, calculatePlaysLikeDistance, subscribeToElevationUpdates } from '@/lib/pointElevation';
 
 interface ESResult {
   mean: number;
   ci95: number;
   n: number;
-  pointsLL: Float64Array;
-  distsYds: Float32Array;
-  classes: Uint8Array;
-  samplePoints?: Array<{point: { lat: number; lon: number }, classId: number}>;
+  countsByClass?: Record<number, number>;
   avgProximity?: number;
   avgProximityInPlay?: number;
+  // Legacy format support
+  pointsLL?: Float64Array;   
+  distsYds?: Float32Array;   
+  classes?: Uint8Array;
 }
 
 interface MetricsBarProps {
@@ -42,26 +43,81 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
     return R * c * 1.09361; // Convert to yards
   };
 
-  // Calculate condition breakdown from ES result
-  const calculateConditionBreakdown = (esResult?: ESResult) => {
-    if (!esResult || !esResult.classes || esResult.classes.length === 0) {
-      // Fallback to mock data if no ES result
-      return [
-        { condition: 'Fairway', percentage: 65, count: 0, color: 'bg-green-500' },
-        { condition: 'Rough', percentage: 25, count: 0, color: 'bg-yellow-600' },
-        { condition: 'Bunker', percentage: 8, count: 0, color: 'bg-yellow-300' },
-        { condition: 'Water', percentage: 2, count: 0, color: 'bg-blue-500' },
-      ];
+  // Format distance: feet up to 100ft, then yards
+  const formatDistance = (yards: number): string => {
+    const feet = yards * 3;
+    if (feet <= 100) {
+      return `${feet.toFixed(0)} ft`;
+    } else {
+      return `${yards.toFixed(1)} yds`;
     }
+  };
 
-    // Count classes from ES result
+  // Get average proximity - use new format if available, fallback to legacy
+  const getAvgProximity = (esResult?: ESResult): number | null => {
+    if (esResult?.avgProximity !== undefined) {
+      return esResult.avgProximity;
+    }
+    
+    // Fallback to legacy calculation
+    if (!esResult || !esResult.distsYds || esResult.distsYds.length === 0) return null;
+    
+    let total = 0;
+    for (let i = 0; i < esResult.distsYds.length; i++) {
+      total += esResult.distsYds[i];
+    }
+    return total / esResult.distsYds.length;
+  };
+
+  // Get in-play proximity - use new format if available, fallback to legacy
+  const getInPlayProximity = (esResult?: ESResult): number | null => {
+    if (esResult?.avgProximityInPlay !== undefined) {
+      return esResult.avgProximityInPlay;
+    }
+    
+    // Fallback to legacy calculation
+    if (!esResult || !esResult.distsYds || !esResult.classes || esResult.distsYds.length === 0) return null;
+    
+    let total = 0;
+    let count = 0;
+    
+    for (let i = 0; i < esResult.distsYds.length; i++) {
+      const classId = esResult.classes[i];
+      // Exclude OB (1) and Water (2)
+      if (classId !== 1 && classId !== 2) {
+        total += esResult.distsYds[i];
+        count++;
+      }
+    }
+    
+    return count > 0 ? total / count : null;
+  };
+
+  // Get class counts for breakdown - use new format if available, fallback to legacy
+  const getClassCounts = (esResult?: ESResult) => {
+    if (esResult?.countsByClass) {
+      return esResult.countsByClass;
+    }
+    
+    // Fallback to legacy calculation
+    if (!esResult || !esResult.classes) return {};
+    
     const counts: Record<number, number> = {};
     for (let i = 0; i < esResult.classes.length; i++) {
       const classId = esResult.classes[i];
       counts[classId] = (counts[classId] || 0) + 1;
     }
+    return counts;
+  };
 
-    const totalSamples = esResult.classes.length;
+  // Calculate condition breakdown from ES result
+  const calculateConditionBreakdown = (esResult?: ESResult) => {
+    const counts = getClassCounts(esResult);
+    const totalSamples = esResult ? (esResult.n || 0) : 0;
+    
+    if (totalSamples === 0) {
+      return [];
+    }
     
     // Map class IDs to conditions with updated colors
     const conditionMapping = [
@@ -97,7 +153,10 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
         totalPlaysLike: { playsLike: 0, elevationChange: 0 },
         aimPlaysLike: { playsLike: 0, elevationChange: 0 },
         expectedStrokes: 0,
-        avgProximity: 0,
+        expectedStrokesCI: 0,
+        avgProximity: null,
+        inPlayProximity: null,
+        sampleCount: 0,
         conditionBreakdown: []
       };
     }
@@ -118,11 +177,13 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
       calculatePlaysLikeDistance(aimDistance, elevations.start, elevations.aim) :
       { playsLike: Math.round(aimDistance), elevationChange: 0 };
     
-    // Calculate Expected Strokes using the engine
-    const expectedStrokes = strokesEngine.calculateExpectedStrokes(aimDistance, 'fairway');
+    // Use Expected Strokes from ES result if available, otherwise calculate for fairway
+    const expectedStrokes = esResult?.mean || ES.calculate(aimDistance, 'fairway');
+    const expectedStrokesCI = esResult?.ci95 || 0;
     
-    // Use proximity from ES result if available, otherwise mock calculation
-    const avgProximity = esResult?.avgProximity || (8 + Math.random() * 8);
+    // Get proximity values
+    const avgProximity = getAvgProximity(esResult);
+    const inPlayProximity = getInPlayProximity(esResult);
 
     // Calculate condition breakdown from ES result
     const conditionBreakdown = calculateConditionBreakdown(esResult);
@@ -133,7 +194,10 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
       totalPlaysLike,
       aimPlaysLike,
       expectedStrokes: expectedStrokes,
+      expectedStrokesCI: expectedStrokesCI,
       avgProximity: avgProximity,
+      inPlayProximity: inPlayProximity,
+      sampleCount: esResult?.n || 0,
       conditionBreakdown
     };
   }, [state.start, state.pin, state.aim, elevationUpdateTrigger, esResult]);
@@ -187,12 +251,26 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
             )}
           </div>
           <div className="text-center">
-            <p className="text-2xl font-bold text-orange-600">{metrics.expectedStrokes.toFixed(2)}</p>
-            <p className="text-xs text-gray-600">Expected Strokes</p>
+            <p className="text-2xl font-bold text-orange-600">
+              {metrics.expectedStrokes.toFixed(3)}
+              {metrics.expectedStrokesCI > 0 && (
+                <span className="text-sm text-gray-500"> ±{metrics.expectedStrokesCI.toFixed(3)}</span>
+              )}
+            </p>
+            <p className="text-xs text-gray-600">
+              Expected Strokes {metrics.sampleCount > 0 && `(n=${metrics.sampleCount})`}
+            </p>
           </div>
           <div className="text-center">
-            <p className="text-2xl font-bold text-purple-600">{metrics.avgProximity.toFixed(1)}</p>
-            <p className="text-xs text-gray-600">Avg Proximity (ft)</p>
+            <p className="text-2xl font-bold text-purple-600">
+              {metrics.avgProximity !== null ? formatDistance(metrics.avgProximity) : '---'}
+            </p>
+            <p className="text-xs text-gray-600">Avg Proximity to Pin</p>
+            {metrics.inPlayProximity !== null && metrics.inPlayProximity !== metrics.avgProximity && (
+              <p className="text-xs text-gray-500 mt-1">
+                In-Play: {formatDistance(metrics.inPlayProximity!)}
+              </p>
+            )}
           </div>
         </div>
 
@@ -200,25 +278,35 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
         {metrics.conditionBreakdown.length > 0 && (
           <div className="pt-4 border-t border-slate-200">
             <h4 className="text-sm font-medium text-secondary mb-3">Landing Conditions</h4>
-            <div className="flex flex-wrap items-center gap-4">
+            <div className="space-y-2">
               {metrics.conditionBreakdown.map((condition, index) => (
-                <div key={index} className="flex items-center space-x-2">
-                  <div className={`w-3 h-3 rounded ${condition.color}`} />
-                  <span className="text-sm text-gray-600">
-                    {condition.condition} {condition.percentage}% ({condition.count})
-                  </span>
+                <div key={index} className="flex items-center space-x-3">
+                  {/* Condition label */}
+                  <div className="flex-shrink-0 w-16 text-xs text-gray-600 text-right">
+                    {condition.condition}
+                  </div>
+                  
+                  {/* Bar container */}
+                  <div className="flex-1 bg-gray-200 rounded-full h-4 relative overflow-hidden">
+                    {/* Filled bar */}
+                    <div
+                      className={`h-full ${condition.color} transition-all duration-300 ease-out`}
+                      style={{ width: `${condition.percentage}%` }}
+                    />
+                    
+                    {/* Percentage text overlay */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-xs font-medium text-gray-800 drop-shadow-sm">
+                        {condition.percentage}%
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* Count */}
+                  <div className="flex-shrink-0 w-8 text-xs text-gray-500 text-left">
+                    {condition.count}
+                  </div>
                 </div>
-              ))}
-            </div>
-
-            {/* Visual Condition Bar */}
-            <div className="mt-3 w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-              {metrics.conditionBreakdown.map((condition, index) => (
-                <div
-                  key={index}
-                  className={`h-full ${condition.color} inline-block`}
-                  style={{ width: `${condition.percentage}%` }}
-                />
               ))}
             </div>
           </div>

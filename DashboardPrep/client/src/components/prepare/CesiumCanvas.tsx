@@ -26,7 +26,8 @@ import {
   greenCentroid, 
   greenRadiusMeters,
   centroidOfPolygon,
-  findGreenContainingPoint
+  findGreenContainingPoint,
+  assignEndpoints
 } from '@/lib/holeGeom';
 
 interface ESResult {
@@ -47,12 +48,17 @@ interface CesiumCanvasProps {
   holePolyline?: { positions: { lon: number; lat: number }[] };
   holeEndpoints?: { teeLL: LatLon; greenLL: LatLon; primaryGreen: any };
   vectorFeatures?: any; // ImportResponse['holes'][0]['features']
-  vectorLayerToggles?: Record<string, boolean>;
   nSamples?: number;
+  onSampleCountChange?: (count: number) => void; // Callback to update parent sample count
   onESWorkerCall?: (params: any) => void;
   loadingCourse?: boolean;
   loadingProgress?: { stage: string; progress: number };
   onViewerReady?: (viewer: any & { flyTeeView?: Function; flyFairwayView?: Function; flyGreenView?: Function }) => void;
+  // Camera navigation props
+  holePolylinesByRef?: Map<string, any>;
+  holeFeatures?: any;
+  currentHole?: number;
+  pinLocation?: LatLon | null;
 }
 
 // Helper function to calculate distance in yards
@@ -102,12 +108,16 @@ function CesiumCanvas({
   holePolyline,
   holeEndpoints,
   vectorFeatures,
-  vectorLayerToggles = {},
-  nSamples,
+  nSamples = 600,
+  onSampleCountChange,
   onESWorkerCall,
   loadingCourse = false,
   loadingProgress = { stage: '', progress: 0 },
-  onViewerReady
+  onViewerReady,
+  holePolylinesByRef,
+  holeFeatures,
+  currentHole,
+  pinLocation
 }: CesiumCanvasProps) {
   const viewerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -120,7 +130,6 @@ function CesiumCanvas({
   const [photorealEnabled, setPhotorealEnabled] = useState(false);
   const [rasterMode, setRasterMode] = useState<'off' | 'fill' | 'edges'>('off');
   const [showSamples, setShowSamples] = useState(true);
-  const [samplesCount, setSamplesCount] = useState(nSamples || 600);
   const samplePointsRef = useRef<any>(null);
   const workerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const workerRef = useRef<Worker | null>(null);
@@ -220,32 +229,68 @@ function CesiumCanvas({
     flyToLLH({ lon: green.lon, lat: green.lat, hMeters: h }, hdg, -89.5, 0.35);
   }, [viewerRef.current]);
 
-  // Handle camera preset buttons
+
+  // Handle camera preset buttons using HoleNavigator logic
   const handleCameraPreset = (preset: string) => {
-    if (!holePolyline || !holeEndpoints) {
-      console.warn('No hole data available for camera preset:', preset);
+    if (!viewerRef.current || !holePolylinesByRef || !holeFeatures || !currentHole) {
+      console.warn('Missing data for camera preset:', { 
+        viewer: !!viewerRef.current, 
+        polylines: !!holePolylinesByRef, 
+        features: !!holeFeatures,
+        currentHole 
+      });
       return;
     }
 
-    const hole = {
-      polyline: holePolyline,
-      greenCentroid: holeEndpoints.greenLL,
-      primaryGreen: holeEndpoints.primaryGreen
-    };
+    const holeRef = currentHole.toString();
+    if (!holePolylinesByRef.has(holeRef)) {
+      console.warn('No polyline data for hole:', holeRef);
+      return;
+    }
 
-    switch (preset) {
-      case 'tee':
-        flyTeeView(hole);
-        break;
-      case 'overview':
-      case 'fairway':
-        flyFairwayView(hole);
-        break;
-      case 'green':
-        flyGreenView(hole);
-        break;
-      default:
-        console.warn('Unknown camera preset:', preset);
+    try {
+      const polylineData = holePolylinesByRef.get(holeRef);
+      const holePolyline = {
+        holeId: holeRef,
+        positions: polylineData.positions,
+        ref: holeRef
+      };
+
+      // Assign endpoints to get green centroid
+      const endpoints = assignEndpoints(holePolyline, holeFeatures.tees, holeFeatures.greens);
+      
+      const hole = {
+        polyline: holePolyline,
+        teeLL: endpoints.teeLL,
+        greenLL: endpoints.greenLL,
+        greenCentroid: endpoints.greenLL, // Use the actual green endpoint, not centroid of largest green
+        primaryGreen: endpoints.primaryGreen
+      };
+
+      switch (preset) {
+        case 'overview':
+          // Overview shows the entire hole - use fairway view
+          flyFairwayView(hole);
+          break;
+        case 'tee':
+          flyTeeView(hole);
+          break;
+        case 'fairway':
+          flyFairwayView(hole);
+          break;
+        case 'green':
+          // Find the specific green that contains the pin location
+          let pinGreen = null;
+          if (pinLocation && holeFeatures?.greens) {
+            pinGreen = findGreenContainingPoint(pinLocation, holeFeatures.greens);
+          }
+          flyGreenView(hole, pinGreen);
+          break;
+        default:
+          console.warn('Unknown camera preset:', preset);
+      }
+    } catch (error) {
+      console.error('Camera preset error:', error);
     }
   };
 
@@ -372,7 +417,7 @@ function CesiumCanvas({
       aim: state.aim,
       pin: state.pin,
       skill: state.skillPreset,
-      samples: samplesCount,
+      samples: nSamples,
       show: showSamples
     });
     
@@ -419,7 +464,7 @@ function CesiumCanvas({
     try {
       // Generate preview points immediately (gray)
       const previewPoints = generateEllipseSamples(
-        samplesCount,
+        nSamples,
         semiMajor,
         semiMinor,
         headingRad,
@@ -434,8 +479,8 @@ function CesiumCanvas({
       // Instant raster-based coloring (no worker needed)
       if (maskBuffer && showSamples) {
         // Classify points using direct raster sampling
-        const pointClassifications = new Array(samplesCount);
-        for (let i = 0; i < samplesCount; i++) {
+        const pointClassifications = new Array(nSamples);
+        for (let i = 0; i < nSamples; i++) {
           const lon = previewPoints[i * 2];
           const lat = previewPoints[i * 2 + 1];
           
@@ -453,7 +498,7 @@ function CesiumCanvas({
       return;
     }
     
-  }, [state.start, state.aim, state.pin, state.skillPreset, samplesCount, showSamples, viewerReady, maskBuffer, onESWorkerCall]);
+  }, [state.start, state.aim, state.pin, state.skillPreset, nSamples, showSamples, viewerReady, maskBuffer, onESWorkerCall]);
 
   // Sample elevation when points change
   useEffect(() => {
@@ -508,18 +553,17 @@ function CesiumCanvas({
     };
   }, [viewerRef.current, viewerReady, holePolyline, holeEndpoints, state.currentHole]);
 
-  // Handle vector features display
+  // Handle vector features display - show polylines only
   useEffect(() => {
     if (!viewerRef.current || !viewerReady || !vectorFeatures) return;
     
-    console.log('[CesiumCanvas] Updating vector features:', {
-      toggles: vectorLayerToggles,
-      hasFeatures: !!vectorFeatures
-    });
+    console.log('[CesiumCanvas] Showing hole polylines');
     
-    showVectorFeatures(viewerRef.current, vectorFeatures, vectorLayerToggles);
+    // Always show just polylines (hole centerlines) - no other features needed
+    const polylinesOnly = { polylines: true };
+    showVectorFeatures(viewerRef.current, vectorFeatures, polylinesOnly);
     
-  }, [viewerRef.current, viewerReady, vectorFeatures, vectorLayerToggles, state.maskPngMeta?.bbox]);
+  }, [viewerRef.current, viewerReady, vectorFeatures, state.maskPngMeta?.bbox]);
 
   // Handle camera fly-to
   useEffect(() => {
@@ -1022,11 +1066,11 @@ function CesiumCanvas({
                 min="100"
                 max="1200"
                 step="50"
-                value={samplesCount}
-                onChange={(e) => setSamplesCount(Number(e.target.value))}
+                value={nSamples}
+                onChange={(e) => onSampleCountChange?.(Number(e.target.value))}
                 className="w-24 h-2"
               />
-              <span className="font-mono text-xs min-w-[3rem] text-right">{samplesCount}</span>
+              <span className="font-mono text-xs min-w-[3rem] text-right">{nSamples}</span>
             </div>
           </div>
         )}
@@ -1123,25 +1167,37 @@ function CesiumCanvas({
                 variant="outline"
                 size="sm"
                 className="h-7 px-2 text-xs"
-                onClick={() => handleCameraPreset('tee')}
+                onClick={() => handleCameraPreset('overview')}
+                disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
               >
-                Tee View
+                Overview
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => handleCameraPreset('tee')}
+                disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
+              >
+                Tee
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => handleCameraPreset('fairway')}
+                disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
+              >
+                Fairway
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 className="h-7 px-2 text-xs"
                 onClick={() => handleCameraPreset('green')}
+                disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
               >
-                Green View
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => handleCameraPreset('overview')}
-              >
-                Overview
+                Green
               </Button>
             </div>
           </div>

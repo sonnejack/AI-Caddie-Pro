@@ -13,7 +13,7 @@ export type MaskMeta = {
   courseBbox?: { west: number; south: number; east: number; north: number }; // Optional course-level bbox for camera positioning
 };
 
-export type ClassId = 0|1|2|3|4|5|6|7|8; // unknown, OB, Water, Hazard, Bunker, Green, Fairway, Recovery, Rough
+export type ClassId = 0|1|2|3|4|5|6|7|8|9; // unknown, OB, Water, Hazard, Bunker, Green, Fairway, Recovery, Rough, TEE
 
 export type ESResult = { mean: number; ci95: number; n: number; countsByClass: Record<ClassId, number> };
 

@@ -39,60 +39,6 @@ export default function HoleNavigator({
 }: HoleNavigatorProps) {
   const [navigationError, setNavigationError] = useState<string | null>(null);
   
-  // Camera view helpers
-  const handleCameraView = (view: 'tee' | 'fairway' | 'green') => {
-    if (!cesiumViewer || !holePolylinesByRef || !holeFeatures) {
-      console.warn('Missing data for camera view:', { cesiumViewer: !!cesiumViewer, holePolylinesByRef: !!holePolylinesByRef, holeFeatures: !!holeFeatures });
-      return;
-    }
-
-    const holeRef = currentHole.toString();
-    if (!holePolylinesByRef.has(holeRef)) {
-      console.warn('No polyline data for hole:', holeRef);
-      return;
-    }
-
-    try {
-      const polylineData = holePolylinesByRef.get(holeRef);
-      const holePolyline = {
-        holeId: holeRef,
-        positions: polylineData.positions,
-        ref: holeRef
-      };
-
-      // Assign endpoints to get green centroid
-      const endpoints = assignEndpoints(holePolyline, holeFeatures.tees, holeFeatures.greens);
-      
-      const hole = {
-        polyline: holePolyline,
-        teeLL: endpoints.teeLL,
-        greenLL: endpoints.greenLL,
-        greenCentroid: endpoints.greenLL, // Use the actual green endpoint, not centroid of largest green
-        primaryGreen: endpoints.primaryGreen
-      };
-
-      switch (view) {
-        case 'tee':
-          if (cesiumViewer.flyTeeView) cesiumViewer.flyTeeView(hole);
-          break;
-        case 'fairway':
-          if (cesiumViewer.flyFairwayView) cesiumViewer.flyFairwayView(hole);
-          break;
-        case 'green':
-          if (cesiumViewer.flyGreenView) {
-            // Find the specific green that contains the pin location
-            let pinGreen = null;
-            if (pinLocation && holeFeatures?.greens) {
-              pinGreen = findGreenContainingPoint(pinLocation, holeFeatures.greens);
-            }
-            cesiumViewer.flyGreenView(hole, pinGreen);
-          }
-          break;
-      }
-    } catch (error) {
-      console.error('Camera view error:', error);
-    }
-  };
   
   // No longer need to query for holes - using real OSM data
   const holes = holePolylinesByRef ? Array.from(holePolylinesByRef.keys()).map((ref, index) => ({
@@ -348,39 +294,6 @@ export default function HoleNavigator({
           </div>
         )}
 
-        {/* Camera View Buttons */}
-        <div className="space-y-2">
-          <div className="text-xs font-medium text-gray-600 mb-2">Camera Views</div>
-          <div className="grid grid-cols-3 gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs py-1 px-2"
-              onClick={() => handleCameraView('tee')}
-              disabled={!cesiumViewer || !holePolylinesByRef?.has(currentHole.toString()) || !holeFeatures}
-            >
-              Tee
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs py-1 px-2"
-              onClick={() => handleCameraView('fairway')}
-              disabled={!cesiumViewer || !holePolylinesByRef?.has(currentHole.toString()) || !holeFeatures}
-            >
-              Fairway
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs py-1 px-2"
-              onClick={() => handleCameraView('green')}
-              disabled={!cesiumViewer || !holePolylinesByRef?.has(currentHole.toString()) || !holeFeatures}
-            >
-              Green
-            </Button>
-          </div>
-        </div>
 
         {/* Manual Navigation Button */}
         <Button

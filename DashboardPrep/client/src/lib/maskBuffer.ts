@@ -174,7 +174,11 @@ export function sampleClassFromMask(
   const pixelIndex = (clampedY * mask.width + clampedX) * 4;
   
   // Read red channel (class ID)
-  const classId = mask.data[pixelIndex] as ClassId;
+  const rawClassId = mask.data[pixelIndex];
+  
+  // Convert transparent/unknown pixels (0) to rough (8)
+  // All other classes stay the same
+  const classId = rawClassId === 0 ? 8 : rawClassId;
   
   // Ensure valid class ID (0-9)
   return Math.max(0, Math.min(9, classId)) as ClassId;
