@@ -472,3 +472,5 @@ All core Prepare workflow functionality is now working end-to-end with real data
 4. **Mobile UI** - Responsive design for smaller screens 
 5. **save some courses**
 **Idea 8/15/2025 11:45 pm** have 'impassable polygon' which blocks aim points from passing directly through... involves creating a line between the two and checking the pixels on the way. This was previously going to be done through intersection detection on google tiles.
+
+**BUG!!** course features may not be recognized during optimization every time.
