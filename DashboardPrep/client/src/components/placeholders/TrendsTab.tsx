@@ -82,7 +82,7 @@ export default function TrendsTab() {
         {/* Trend Features Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
           {trendFeatures.map((feature, index) => (
-            <div key={index} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+            <div key={index} className="p-4 bg-muted rounded-lg border border-border">
               <div className="text-center">
                 <i className={`${feature.icon} text-2xl ${feature.color} mb-3`}></i>
                 <h3 className="font-medium text-gray-600 dark:text-gray-300 mb-2">{feature.title}</h3>
@@ -108,7 +108,7 @@ export default function TrendsTab() {
 
         {/* Visualization Preview */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+          <div className="p-6 bg-muted rounded-lg border border-border">
             <h3 className="font-medium text-gray-600 dark:text-gray-300 mb-4 text-center">Handicap Progression</h3>
             <div className="w-full h-32 bg-gradient-to-r from-blue-100 to-green-100 dark:from-blue-900/30 dark:to-green-900/30 rounded flex items-center justify-center">
               <div className="text-center">
@@ -117,7 +117,7 @@ export default function TrendsTab() {
               </div>
             </div>
           </div>
-          <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+          <div className="p-6 bg-muted rounded-lg border border-border">
             <h3 className="font-medium text-gray-600 dark:text-gray-300 mb-4 text-center">Performance Heatmap</h3>
             <div className="w-full h-32 bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 rounded flex items-center justify-center">
               <div className="text-center">

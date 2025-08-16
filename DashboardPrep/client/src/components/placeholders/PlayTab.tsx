@@ -48,7 +48,7 @@ export default function PlayTab() {
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {features.map((feature, index) => (
-            <div key={index} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+            <div key={index} className="p-4 bg-muted rounded-lg border border-border">
               <div className="text-center">
                 <i className={`${feature.icon} text-2xl text-gray-400 mb-3`}></i>
                 <h3 className="font-medium text-gray-600 dark:text-gray-300 mb-2">{feature.title}</h3>

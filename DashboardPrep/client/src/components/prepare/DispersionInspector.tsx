@@ -323,13 +323,13 @@ export default function DispersionInspector({
         <div>
           <h4 className="text-sm font-medium text-gray-700 mb-2">Ellipse Dimensions</h4>
           <div className="grid grid-cols-2 gap-3">
-            <div className="text-center p-2 bg-slate-50 rounded">
+            <div className="text-center p-2 bg-muted rounded">
               <p className="text-lg font-bold text-primary">
                 {(ellipseDimensions.a * 2).toFixed(1)}
               </p>
               <p className="text-xs text-gray-600">Long. (yds)</p>
             </div>
-            <div className="text-center p-2 bg-slate-50 rounded">
+            <div className="text-center p-2 bg-muted rounded">
               <p className="text-lg font-bold text-primary">
                 {(ellipseDimensions.b * 2).toFixed(1)}
               </p>
@@ -350,7 +350,7 @@ export default function DispersionInspector({
                 </div>
                 
                 {/* Bar container */}
-                <div className="flex-1 bg-gray-200 rounded-full h-3 relative overflow-hidden">
+                <div className="flex-1 bg-muted rounded-full h-3 relative overflow-hidden">
                   {/* Filled bar */}
                   <div
                     className={`h-full ${condition.color} transition-all duration-300 ease-out`}

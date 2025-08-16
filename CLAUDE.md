@@ -30,6 +30,7 @@ This is a professional golf course analysis and shot optimization platform with 
 - **3D Visualization**: Cesium.js integration in `components/prepare/CesiumCanvas.tsx`
 - **UI Framework**: shadcn/ui components built on Radix primitives in `components/ui/`
 - **Query Management**: TanStack Query in `lib/queryClient.ts`
+- **Theme System**: Light/Dark/System theme switcher with custom brand colors
 
 ### Backend Architecture (Express/TypeScript)
 - **Server root**: `server/` with Express.js REST API
@@ -53,6 +54,30 @@ This is a professional golf course analysis and shot optimization platform with 
 - `@/*` → `client/src/*`
 - `@shared/*` → `shared/*`
 - `@assets/*` → `attached_assets/*`
+
+## Theme System
+
+The application uses a custom theme system with semantic color variables defined in `client/src/index.css`:
+
+### Brand Colors
+- **Primary Green**: `hsl(173, 88%, 25%)` - Used for primary actions, navigation highlights, and brand accents
+- **Accent Green**: `hsl(159, 88%, 35%)` - Secondary green for complementary elements
+
+### Custom Background Colors
+- **Light Mode**: `#F5F5F5` - Custom light grey background for better visual comfort
+- **Dark Mode**: `#000a14` - Custom dark blue-black background with excellent contrast
+
+### Theme Implementation
+- Theme provider in `lib/theme.tsx` supports Light/Dark/System modes with localStorage persistence
+- Theme toggle component in `components/ui/theme-toggle.tsx` with dropdown selection
+- Semantic CSS variables ensure consistent theming across all components
+- All UI elements use theme-aware color classes (`bg-background`, `bg-muted`, `text-foreground`, etc.)
+
+### Color Hierarchy (Dark Mode)
+- Background: `#000a14`
+- Cards/Panels: `#0a1420` 
+- Muted/Borders: `#1a2332`
+- Foreground text: Light grey for optimal readability
 
 ## Development Notes
 

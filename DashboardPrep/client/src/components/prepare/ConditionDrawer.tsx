@@ -116,7 +116,7 @@ export default function ConditionDrawer() {
                     ? 'bg-blue-600 text-white shadow-md' 
                     : isDisabled 
                       ? 'opacity-50 cursor-not-allowed' 
-                      : 'hover:bg-slate-50'
+                      : 'hover:bg-muted/50'
                 }`}
                 onClick={() => handleDrawCondition(condition.name)}
               >

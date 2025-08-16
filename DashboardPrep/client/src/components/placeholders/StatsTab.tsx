@@ -73,7 +73,7 @@ export default function StatsTab() {
         {/* Statistics Categories */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {statCategories.map((category, index) => (
-            <div key={index} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+            <div key={index} className="p-4 bg-muted rounded-lg border border-border">
               <div className="text-center mb-4">
                 <i className={`${category.icon} text-2xl text-primary mb-2`}></i>
                 <h3 className="font-medium text-gray-700 dark:text-gray-300">{category.title}</h3>

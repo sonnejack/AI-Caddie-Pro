@@ -64,11 +64,11 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
   return (
     <Card>
       <CardHeader 
-        className="cursor-pointer hover:bg-slate-50"
+        className="cursor-pointer hover:bg-muted/50"
         onClick={() => setIsCollapsed(!isCollapsed)}
       >
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-semibold text-secondary">
+          <CardTitle className="text-lg font-semibold text-foreground">
             {selectedCourseId && isCollapsed ? 
               (selectedCourse ? parseCourseName(selectedCourse.name).name : 'Loading...') : 
               'Select Course'
@@ -89,7 +89,7 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
       {!isCollapsed && (
         <CardContent className="space-y-4">
         {/* Mode Toggle */}
-        <div className="flex bg-slate-100 rounded-lg p-1">
+        <div className="flex bg-muted rounded-lg p-1">
           <Button
             variant={mode === 'curated' ? 'default' : 'ghost'}
             size="sm"
@@ -113,7 +113,7 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
           {isLoading ? (
             // Loading skeleton
             Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="p-3 border border-slate-200 rounded-lg">
+              <div key={i} className="p-3 border border-border rounded-lg">
                 <Skeleton className="w-full h-20 mb-2" />
                 <div className="flex items-center justify-between">
                   <div>
@@ -126,7 +126,7 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
             ))
           ) : mode === 'search' ? (
             // Search mode placeholder
-            <div className="p-8 text-center text-gray-500">
+            <div className="p-8 text-center text-muted-foreground">
               <i className="fas fa-search text-4xl mb-4 opacity-50"></i>
               <p>Search functionality coming soon</p>
             </div>
@@ -137,16 +137,16 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
               return (
                 <div
                   key={course.id}
-                  className={`p-2 border rounded-lg hover:bg-slate-50 cursor-pointer transition-colors ${
-                    selectedCourseId === course.id ? 'border-primary bg-primary/5' : 'border-slate-200'
+                  className={`p-2 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors ${
+                    selectedCourseId === course.id ? 'border-primary bg-primary/5' : 'border-border'
                   }`}
                   onClick={() => onCourseSelect(course)}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-secondary text-sm leading-tight">{name}</h4>
+                      <h4 className="font-medium text-foreground text-sm leading-tight">{name}</h4>
                       {location && (
-                        <p className="text-xs text-gray-500 mt-0.5">{location}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{location}</p>
                       )}
                     </div>
                     <Badge variant="secondary" className="bg-blue-100 text-blue-700 ml-2">

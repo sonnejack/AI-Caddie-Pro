@@ -70,7 +70,7 @@ export default function DispersionTab() {
         {/* Analysis Visualizations */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {analysisFeatures.map((feature, index) => (
-            <div key={index} className="p-6 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+            <div key={index} className="p-6 bg-muted rounded-lg border border-border">
               <h3 className="font-medium text-gray-600 dark:text-gray-300 mb-2">{feature.title}</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{feature.description}</p>
               <div className={`w-full h-32 bg-gradient-to-br ${feature.gradient} rounded flex items-center justify-center`}>
@@ -85,7 +85,7 @@ export default function DispersionTab() {
           <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4 text-center">Statistical Metrics</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {dispersionMetrics.map((metric, index) => (
-              <div key={index} className="p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-center">
+              <div key={index} className="p-4 bg-card rounded-lg border border-border text-center">
                 <i className={`${metric.icon} text-2xl text-primary mb-3`}></i>
                 <h4 className="font-medium text-gray-700 dark:text-gray-300 text-sm mb-1">{metric.metric}</h4>
                 <p className="text-lg font-bold text-primary mb-2">{metric.value}</p>
@@ -97,17 +97,17 @@ export default function DispersionTab() {
 
         {/* Advanced Features */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-center">
+          <div className="p-4 bg-muted rounded-lg border border-border text-center">
             <i className="fas fa-chart-scatter text-2xl text-blue-500 mb-3"></i>
             <h3 className="font-medium text-gray-600 dark:text-gray-300 mb-2">3D Visualization</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">Three-dimensional shot pattern analysis</p>
           </div>
-          <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-center">
+          <div className="p-4 bg-muted rounded-lg border border-border text-center">
             <i className="fas fa-brain text-2xl text-purple-500 mb-3"></i>
             <h3 className="font-medium text-gray-600 dark:text-gray-300 mb-2">ML Predictions</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">Machine learning shot prediction models</p>
           </div>
-          <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-center">
+          <div className="p-4 bg-muted rounded-lg border border-border text-center">
             <i className="fas fa-sliders-h text-2xl text-green-500 mb-3"></i>
             <h3 className="font-medium text-gray-600 dark:text-gray-300 mb-2">Custom Filters</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">Filter by conditions, clubs, and distances</p>

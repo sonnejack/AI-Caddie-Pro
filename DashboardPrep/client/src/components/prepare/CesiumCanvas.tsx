@@ -146,6 +146,7 @@ function CesiumCanvas({
   const [photorealEnabled, setPhotorealEnabled] = useState(false);
   const [rasterMode, setRasterMode] = useState<'off' | 'fill' | 'edges'>('off');
   const [showSamples, setShowSamples] = useState(true);
+  const googleTilesetRef = useRef<any>(null);
   const samplePointsRef = useRef<any>(null);
   const workerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const workerRef = useRef<Worker | null>(null);
@@ -451,6 +452,12 @@ function CesiumCanvas({
       
       // Cleanup samples layer
       destroySamplesLayer();
+      
+      // Cleanup Google tileset
+      if (googleTilesetRef.current && viewerRef.current) {
+        viewerRef.current.scene.primitives.remove(googleTilesetRef.current);
+        googleTilesetRef.current = null;
+      }
       
       if (viewerRef.current) {
         viewerRef.current.destroy();
@@ -799,6 +806,43 @@ function CesiumCanvas({
   const handleSamplesToggle = (visible: boolean) => {
     setShowSamples(visible);
     setSamplesVisibility(visible);
+  };
+
+  // Handle Google 3D Tiles toggle
+  const handleGoogleTilesToggle = async () => {
+    if (!viewerRef.current) return;
+    
+    const viewer = viewerRef.current;
+    const newState = !photorealEnabled;
+    
+    if (newState) {
+      // Enable Google Photorealistic 3D Tiles
+      try {
+        console.log('Enabling Google Photorealistic 3D Tiles...');
+        
+        // Create Google Photorealistic 3D Tiles tileset if it doesn't exist
+        if (!googleTilesetRef.current) {
+          googleTilesetRef.current = viewer.scene.primitives.add(
+            await (window as any).Cesium.createGooglePhotorealistic3DTileset()
+          );
+        } else {
+          googleTilesetRef.current.show = true;
+        }
+        
+        console.log('Google 3D Tiles enabled');
+      } catch (error) {
+        console.error('Failed to load Google 3D Tiles:', error);
+        return; // Don't update state if loading failed
+      }
+    } else {
+      // Disable Google Photorealistic 3D Tiles
+      if (googleTilesetRef.current) {
+        googleTilesetRef.current.show = false;
+        console.log('Google 3D Tiles disabled');
+      }
+    }
+    
+    setPhotorealEnabled(newState);
   };
 
   // Handle camera positioning for new course
@@ -1219,7 +1263,7 @@ function CesiumCanvas({
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setPhotorealEnabled(!photorealEnabled)}
+              onClick={handleGoogleTilesToggle}
               title="Toggle Photorealistic 3D"
               className="h-8 w-8"
             >
@@ -1275,7 +1319,7 @@ function CesiumCanvas({
         
         {/* Samples Control Row */}
         {showSamples && (
-          <div className="flex items-center justify-between text-sm px-2 py-1 bg-slate-50 border-b">
+          <div className="flex items-center justify-between text-sm px-2 py-1 bg-muted border-b">
             <span className="text-gray-600">Samples:</span>
             <div className="flex items-center space-x-2">
               <input
@@ -1373,7 +1417,7 @@ function CesiumCanvas({
         </div>
 
         {/* Camera Controls */}
-        <div className="p-3 bg-slate-50 border-t border-slate-200">
+        <div className="p-3 bg-muted border-t border-border">
           <div className="flex items-center justify-between text-xs text-gray-600">
             <div className="flex items-center space-x-4">
               <span>Elevation: <span className="font-medium">245ft</span></span>

@@ -467,6 +467,8 @@ All core Prepare workflow functionality is now working end-to-end with real data
 
 **Next Development Priorities:**
 1. ✅ **User Drawing System** - Now fully implemented and working
-2. **Grid Search Optimizer** - Alternative to CEM algorithm
+2. ✅ **Grid Search Optimizer** - Alternative to CEM algorithm
 3. **Advanced Short Game** - Slope-aware calculations within 45 yards
 4. **Mobile UI** - Responsive design for smaller screens 
+5. **save some courses**
+**Idea 8/15/2025 11:45 pm** have 'impassable polygon' which blocks aim points from passing directly through... involves creating a line between the two and checking the pixels on the way. This was previously going to be done through intersection detection on google tiles.

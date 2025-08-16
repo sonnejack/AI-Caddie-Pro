@@ -20,6 +20,9 @@ import type { ImportResponse } from '@shared/overpass';
 import type { LatLon, ESResult } from '@shared/types';
 import { DrawingManagerContext } from '@/prepare/drawing/DrawingManagerContext';
 import type { UserPolygon } from '@/prepare/drawing/ConditionDrawingManager';
+import { UserMenu } from '@/components/auth/UserMenu';
+import { AuthProvider } from '@/components/auth/AuthProvider';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('prepare');
@@ -482,15 +485,15 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header with Tabs */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
+      <header className="bg-card border-b border-border sticky top-0 z-50">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-12">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-8">
               <div className="flex items-center space-x-2">
                 <i className="fas fa-golf-ball text-primary text-xl"></i>
-                <h1 className="text-xl font-bold text-secondary">Golf Analytics Pro</h1>
+                <h1 className="text-xl font-bold text-foreground">Golf Analytics Pro</h1>
               </div>
               
               {/* Tabs in Header */}
@@ -537,9 +540,8 @@ export default function Dashboard() {
               <Button variant="ghost" size="icon">
                 <i className="fas fa-cog text-lg"></i>
               </Button>
-              <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
-                <i className="fas fa-user text-white text-sm"></i>
-              </div>
+              <ThemeToggle />
+              <UserMenu />
             </div>
           </div>
         </div>
