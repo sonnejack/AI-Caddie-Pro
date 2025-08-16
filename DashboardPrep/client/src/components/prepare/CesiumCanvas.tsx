@@ -8,6 +8,8 @@ import { PrepareState, LatLon, getRollMultipliers } from '../../lib/types';
 import { colorizeMaskToCanvas, edgesMaskToCanvas, showRasterLayer, hideRasterLayer } from '@/lib/rasterOverlay';
 import { initPointElevation, samplePointElevation, clearElevations } from '@/lib/pointElevation';
 import type { MaskBuffer } from '@/lib/maskBuffer';
+import { ConditionDrawingManager, type UserPolygon, type Condition } from '@/cesium/ConditionDrawingManager';
+import { DrawingManagerContext, type DrawingManagerState } from '@/prepare/drawing/DrawingManagerContext';
 import {
   initSamplesLayer,
   showSamples as setSamplesVisibility,
@@ -60,6 +62,9 @@ interface CesiumCanvasProps {
   holeFeatures?: any;
   currentHole?: number;
   pinLocation?: LatLon | null;
+  // Drawing props
+  onUserPolygonsChange?: (polygons: UserPolygon[]) => void;
+  onDrawingStateChange?: (state: DrawingManagerState) => void;
 }
 
 // Helper function to calculate distance in yards
@@ -97,6 +102,14 @@ function sampleRasterPixel(lon: number, lat: number, maskBuffer: MaskBuffer): nu
 function updateSampleColors(pointsLL: Float64Array, classifications: number[]) {
   const n = classifications.length;
   const classArray = new Uint8Array(classifications);
+  
+  console.log('🎨 updateSampleColors called with', n, 'points');
+  console.log('🎨 First 10 classifications:', classifications.slice(0, 10));
+  
+  // Count OB points being passed to visual layer
+  const obCount = classifications.filter(c => c === 1).length;
+  console.log(`🎨 Passing ${obCount} OB points to visual layer`);
+  
   setSamples(pointsLL, classArray);
 }
 
@@ -118,7 +131,9 @@ function CesiumCanvas({
   holePolylinesByRef,
   holeFeatures,
   currentHole,
-  pinLocation
+  pinLocation,
+  onUserPolygonsChange,
+  onDrawingStateChange
 }: CesiumCanvasProps) {
   const viewerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -135,6 +150,16 @@ function CesiumCanvas({
   const workerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const lastParamsRef = useRef<string>('');
+  
+  // Drawing manager state
+  const [drawingManager, setDrawingManager] = useState<ConditionDrawingManager | null>(null);
+  const [baseMask, setBaseMask] = useState<MaskBuffer | null>(null);
+  const [activeMask, setActiveMask] = useState<MaskBuffer | null>(null);
+  const [drawingState, setDrawingState] = useState<DrawingManagerState>({
+    isDrawing: false,
+    vertices: 0,
+    condition: undefined
+  });
 
 
   // Update refs when props change
@@ -373,6 +398,25 @@ function CesiumCanvas({
         console.log('📏 Initializing point elevation system...');
         initPointElevation(viewer);
         
+        // Initialize drawing manager
+        console.log('✏️ Initializing drawing manager...');
+        const manager = new ConditionDrawingManager(viewer, {
+          onUpdate: (polygons) => {
+            if (onUserPolygonsChange) {
+              onUserPolygonsChange(polygons);
+            }
+          },
+          onState: (state) => {
+            console.log('🎨 Drawing state changed:', state);
+            setDrawingState(state);
+            // Notify parent component
+            if (onDrawingStateChange) {
+              onDrawingStateChange(state);
+            }
+          }
+        });
+        setDrawingManager(manager);
+        
         // Notify parent component that viewer is ready
         if (onViewerReady) {
           // Attach camera functions to the viewer object for external access
@@ -380,6 +424,7 @@ function CesiumCanvas({
           viewerWithCameraFunctions.flyTeeView = flyTeeView;
           viewerWithCameraFunctions.flyFairwayView = flyFairwayView;
           viewerWithCameraFunctions.flyGreenView = flyGreenView;
+          viewerWithCameraFunctions.drawingManager = manager; // Expose drawing manager
           onViewerReady(viewerWithCameraFunctions);
         }
         
@@ -414,6 +459,27 @@ function CesiumCanvas({
       initializingRef.current = false;
     };
   }, []);
+
+  // Handle mask updates - use mask buffer directly since it already includes user polygons
+  useEffect(() => {
+    if (maskBuffer) {
+      // Store the base mask
+      setBaseMask(maskBuffer);
+      
+      // Use mask buffer directly as active mask since dashboard re-rasterization 
+      // already includes user polygons baked in
+      setActiveMask(maskBuffer);
+    }
+  }, [maskBuffer]);
+
+  // Cleanup drawing manager when component unmounts
+  useEffect(() => {
+    return () => {
+      if (drawingManager) {
+        drawingManager.destroy();
+      }
+    };
+  }, [drawingManager]);
 
   // Auto-generate samples with debounced effect
   useEffect(() => {
@@ -552,17 +618,37 @@ function CesiumCanvas({
       setSamplesVisibility(showSamples);
       
       // Instant raster-based coloring (no worker needed)
-      if (maskBuffer && showSamples) {
-        // Classify points using direct raster sampling
+      if (activeMask && showSamples) {
+        console.log('🎯 Sampling using bbox:', activeMask.bbox);
+        console.log('🎯 Sampling mask dimensions:', activeMask.width, 'x', activeMask.height);
+        
+        // Classify points using direct raster sampling from active mask
         const pointClassifications = new Array(nSamples);
+        let obCount = 0;
         for (let i = 0; i < nSamples; i++) {
           const lon = previewPoints[i * 2];
           const lat = previewPoints[i * 2 + 1];
           
           // Sample raster pixel directly (O(1) operation)
-          const classId = sampleRasterPixel(lon, lat, maskBuffer);
+          const classId = sampleRasterPixel(lon, lat, activeMask);
           pointClassifications[i] = classId;
+          
+          if (classId === 1) { // OB class
+            obCount++;
+            if (obCount <= 3) { // Log first few OB points for debugging
+              console.log(`🎯 OB point ${obCount}: lon=${lon}, lat=${lat}, classId=${classId}`);
+            }
+          }
         }
+        
+        console.log(`🎯 Found ${obCount} OB points out of ${nSamples} total`);
+        
+        // Count each class for verification
+        const classCounts = new Map<number, number>();
+        pointClassifications.forEach(classId => {
+          classCounts.set(classId, (classCounts.get(classId) || 0) + 1);
+        });
+        console.log('🎯 Class distribution:', Array.from(classCounts.entries()).map(([k,v]) => `Class ${k}: ${v}`));
         
         // Update colors immediately
         updateSampleColors(previewPoints, pointClassifications);
@@ -573,7 +659,7 @@ function CesiumCanvas({
       return;
     }
     
-  }, [state.start, state.aim, state.pin, state.skillPreset, state.rollCondition, nSamples, showSamples, viewerReady, maskBuffer, onESWorkerCall]);
+  }, [state.start, state.aim, state.pin, state.skillPreset, state.rollCondition, nSamples, showSamples, viewerReady, activeMask, onESWorkerCall]);
 
   // Sample elevation when points change
   useEffect(() => {
@@ -987,21 +1073,25 @@ function CesiumCanvas({
 
   // Handle raster overlay mode changes
   useEffect(() => {
-    if (!viewerRef.current || !viewerReady || !maskBuffer || !state.maskPngMeta?.bbox) return;
+    if (!viewerRef.current || !viewerReady || !activeMask) return;
     
     const viewer = viewerRef.current;
-    const bbox = state.maskPngMeta.bbox;
+    // Use the activeMask bbox to ensure visual overlay matches sampling coordinates
+    const bbox = activeMask.bbox;
+    
+    console.log('🎨 Visual overlay using bbox:', bbox);
+    console.log('🎨 Active mask dimensions:', activeMask.width, 'x', activeMask.height);
     
     if (rasterMode === 'off') {
       hideRasterLayer(viewer);
     } else if (rasterMode === 'fill') {
-      const canvas = colorizeMaskToCanvas(maskBuffer);
+      const canvas = colorizeMaskToCanvas(activeMask);
       showRasterLayer(viewer, canvas, bbox, 0.8);
     } else if (rasterMode === 'edges') {
-      const canvas = edgesMaskToCanvas(maskBuffer);
+      const canvas = edgesMaskToCanvas(activeMask);
       showRasterLayer(viewer, canvas, bbox, 1.0);
     }
-  }, [viewerReady, rasterMode, maskBuffer, state.maskPngMeta?.bbox]);
+  }, [viewerReady, rasterMode, activeMask]);
 
   // Class ID to color mapping for sample points (matching SamplesLayer)
   const getClassColor = (classId: number) => {
@@ -1042,6 +1132,12 @@ function CesiumCanvas({
     const handler = new (window as any).Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 
     handler.setInputAction(async (click: any) => {
+      // Check if drawing manager is active - if so, let it handle the click
+      if (drawingState.isDrawing) {
+        console.log('🎨 Drawing mode active - deferring click to drawing manager');
+        return; // Don't handle point selection when drawing
+      }
+      
       if (!selectionModeRef.current) return;
       
       // Use globe.pick for terrain-aware picking
@@ -1060,7 +1156,7 @@ function CesiumCanvas({
     return () => {
       handler.destroy();
     };
-  }, [viewerReady]); // Only depend on viewerReady - refs handle the rest
+  }, [viewerReady, drawingState.isDrawing]); // Include drawing state in dependencies
 
 
   // Utility functions
@@ -1114,7 +1210,8 @@ function CesiumCanvas({
   }
 
   return (
-    <Card className="overflow-hidden">
+    <DrawingManagerContext.Provider value={{ manager: drawingManager, state: drawingState }}>
+      <Card className="overflow-hidden">
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg font-semibold text-secondary">Course View</CardTitle>
@@ -1333,6 +1430,7 @@ function CesiumCanvas({
         </div>
       </CardContent>
     </Card>
+    </DrawingManagerContext.Provider>
   );
 }
 

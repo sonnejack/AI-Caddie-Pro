@@ -12,7 +12,7 @@ let generation = 0;
 let pending: SampleReq[] = [];
 let rafId: number | null = null;
 // Keep last lon/lat for async refinement
-let pointsScratch = new Float64Array(0);
+let pointsScratch: Float64Array = new Float64Array(0);
 
 function getCesium(): any { return (window as any).Cesium; }
 
@@ -109,7 +109,7 @@ function scheduleAsyncRefine() {
   });
 }
 
-export function setSamples(pointsLL: Float64Array<ArrayBuffer>, classes?: Uint8Array) {
+export function setSamples(pointsLL: Float64Array, classes?: Uint8Array) {
   if (!viewerRef) return;
   const Cesium = getCesium();
 
@@ -132,8 +132,14 @@ export function setSamples(pointsLL: Float64Array<ArrayBuffer>, classes?: Uint8A
 
     // Start with ground level + lift (no sync height - just get them visible immediately)
     p.position = Cesium.Cartesian3.fromDegrees(lon, lat, 0.05);
-    p.color = classes ? colorForClass(classes[idx]) : PREVIEW_COLOR();
+    const classId = classes ? classes[idx] : -1;
+    p.color = classes ? colorForClass(classId) : PREVIEW_COLOR();
     p.show = true;
+    
+    // Debug log for OB points
+    if (classId === 1 && idx < 5) {
+      console.log(`🎨 SamplesLayer: Point ${idx} at (${lon}, ${lat}) classified as OB (${classId}), colored WHITESMOKE`);
+    }
 
     // Queue ALL points for precise batch refinement
     pending.push({ idx, lon, lat, gen: generation });

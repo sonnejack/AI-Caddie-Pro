@@ -95,6 +95,6 @@ export const CONDITION_COLORS = {
   bunker: '#FDE047',
   green: '#22C55E',
   fairway: '#84CC16',
-  recovery: '#A3A3A3',
+  recovery: '#8E44AD', // Purple as specified
   rough: '#6B7280',
 };

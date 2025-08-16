@@ -99,6 +99,14 @@ export default function OptimizerPanel({
     clearCandidates();
 
     try {
+      // Log mask buffer info for debugging
+      console.log('🎯 Optimizer using mask buffer:', {
+        width: maskBuffer!.width,
+        height: maskBuffer!.height,
+        bbox: maskBuffer!.bbox,
+        dataLength: maskBuffer!.data.length
+      });
+      
       // Create optimizer input
       const optimizerInput: OptimizerInput = {
         start: start!,

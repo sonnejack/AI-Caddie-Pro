@@ -14,10 +14,12 @@ import TrendsTab from '../components/placeholders/TrendsTab';
 import DispersionTab from '../components/placeholders/DispersionTab';
 import { usePrepareState } from '../hooks/usePrepareState';
 import { SKILL_PRESETS } from '@shared/types';
-import { createMaskFromFeatures } from '@/lib/maskPainter';
+import { createMaskFromFeatures, applyUserPolygonsToMask } from '@/lib/maskPainter';
 import { samplePointElevation } from '@/lib/pointElevation';
 import type { ImportResponse } from '@shared/overpass';
 import type { LatLon, ESResult } from '@shared/types';
+import { DrawingManagerContext } from '@/prepare/drawing/DrawingManagerContext';
+import type { UserPolygon } from '@/prepare/drawing/ConditionDrawingManager';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('prepare');
@@ -42,6 +44,14 @@ export default function Dashboard() {
   const [holePolylinesByRef, setHolePolylinesByRef] = useState<Map<string, any>>(new Map());
   const [cesiumViewerRef, setCesiumViewerRef] = useState<any>(null);
   const [courseNavigationInitialized, setCourseNavigationInitialized] = useState(false);
+  const [drawingManager, setDrawingManager] = useState<any>(null);
+  const [userPolygons, setUserPolygons] = useState<UserPolygon[]>([]);
+  const [drawingState, setDrawingState] = useState<{ isDrawing: boolean; vertexCount: number; currentCondition: string | null }>({
+    isDrawing: false,
+    vertexCount: 0,
+    currentCondition: null
+  });
+  const [originalCourseBbox, setOriginalCourseBbox] = useState<{ west: number; south: number; east: number; north: number } | null>(null);
   const {
     courseId, holeId, setCourseId, setHoleId,
     start, setStart, pin, setPin, aim, setAim,
@@ -162,6 +172,9 @@ export default function Dashboard() {
       const totalFeatures = Object.values(importData.features || {}).flat().length;
       setLoadingProgress({ stage: `Processing ${totalFeatures} course features...`, progress: 50 });
       
+      // Store original course bbox for re-rasterization
+      setOriginalCourseBbox(importData.course.bbox);
+      
       // Create client-side mask from features (strict polygon-only)
       console.log('🎨 Creating client-side mask from features...');
       setLoadingProgress({ stage: 'Creating course raster mask...', progress: 70 });
@@ -265,9 +278,49 @@ export default function Dashboard() {
     }
   };
 
+  // Re-rasterize mask when user polygons change
+  useEffect(() => {
+    if (!vectorFeatures || !originalCourseBbox) return;
+    
+    console.log('🎨 Re-rasterizing mask with', userPolygons.length, 'user polygons...');
+    
+    try {
+      // Create new mask from original features using the ORIGINAL course bbox
+      // This prevents coordinate drift from repeated bbox expansion
+      const maskResult = createMaskFromFeatures(vectorFeatures, originalCourseBbox);
+      
+      // Create the mask buffer
+      const newMaskBuffer = {
+        width: maskResult.width,
+        height: maskResult.height,
+        bbox: maskResult.bbox,
+        data: maskResult.imageData.data
+      };
+      
+      // Apply user polygons to the mask (if any)
+      const finalMaskBuffer = userPolygons.length > 0 
+        ? applyUserPolygonsToMask(newMaskBuffer, userPolygons)
+        : newMaskBuffer;
+      
+      // Update the mask buffer state
+      setMaskBuffer(finalMaskBuffer);
+      
+      console.log('✅ Mask re-rasterized successfully with', userPolygons.length, 'user polygons');
+      console.log('🎯 Updated mask buffer for optimizer:', {
+        width: finalMaskBuffer.width,
+        height: finalMaskBuffer.height,
+        dataLength: finalMaskBuffer.data.length
+      });
+      
+    } catch (error) {
+      console.error('❌ Failed to re-rasterize mask:', error);
+    }
+  }, [userPolygons, vectorFeatures, originalCourseBbox]);
+
   // PrepareTab content rendered inline to avoid component recreation
   const prepareTabContent = (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+    <DrawingManagerContext.Provider value={{ manager: drawingManager, state: drawingState }}>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
       {/* Mobile: Show viewer first, then controls */}
       {/* Desktop: Left Sidebar */}
       <div className="order-2 lg:order-1 lg:col-span-3 space-y-3 lg:space-y-4">
@@ -356,7 +409,17 @@ export default function Dashboard() {
           holeFeatures={vectorFeatures}
           currentHole={currentHole}
           pinLocation={pin}
-          onViewerReady={setCesiumViewerRef}
+          onViewerReady={(viewer) => {
+            setCesiumViewerRef(viewer);
+            // Pass the drawing manager back to dashboard level
+            if (viewer.drawingManager) {
+              setDrawingManager(viewer.drawingManager);
+            }
+          }}
+          onDrawingStateChange={(state) => {
+            setDrawingState(state);
+          }}
+          onUserPolygonsChange={setUserPolygons}
           onESWorkerCall={async (params) => {
             // Create worker and call it with the params
             try {
@@ -415,6 +478,7 @@ export default function Dashboard() {
         />
       </div>
     </div>
+    </DrawingManagerContext.Provider>
   );
 
   return (

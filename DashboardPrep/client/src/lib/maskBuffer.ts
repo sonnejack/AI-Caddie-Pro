@@ -18,6 +18,19 @@ export const CLASS = {
 
 export const ALLOWED_CLASSES = new Set([0,1,2,3,4,5,6,7,8,9]);
 
+// Condition name -> class id mapping
+export const CONDITION_CLASS: Record<string, number> = {
+  green: CLASS.GREEN,
+  fairway: CLASS.FAIRWAY,
+  tee: CLASS.TEE,
+  bunker: CLASS.BUNKER,
+  water: CLASS.WATER,
+  hazard: CLASS.HAZARD,
+  OB: CLASS.OB,
+  recovery: CLASS.RECOVERY,
+  rough: CLASS.ROUGH,
+};
+
 let maskHistogramLogged = false;
 
 export function computeMaskDimsPreservingAspect(

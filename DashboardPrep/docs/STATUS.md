@@ -385,4 +385,88 @@ All core Prepare workflow functionality is now working end-to-end with real data
 **Bugs discovered**
 - runtime error?
 - points stop clamping to surface if i spam 'optimize' (fixed after waiting a few seconds)
-- very slow loading time occassionally. might be due to new 
+- very slow loading time occassionally. might be due to new
+
+## Session Update - 8/16/2025 12:00 AM
+
+### User Polygon Drawing & Re-rasterization Implementation
+
+**Major Issues Resolved:**
+
+✅ **Polygon Persistence**: Fixed issue where drawn polygons disappeared after "Finish polygon" was clicked
+- **Problem**: Polygons were created but not permanently integrated into the raster mask
+- **Solution**: Implemented automatic re-rasterization in dashboard when user polygons change
+- **Files Modified**: `dashboard.tsx` (lines 277-315) - Added useEffect that re-creates mask with user polygons baked in
+
+✅ **Coordinate Alignment**: Fixed critical bbox mismatch between visual overlay and sampling systems
+- **Problem**: Visual raster overlay used `state.maskPngMeta.bbox` while sampling used `activeMask.bbox`, causing coordinate drift
+- **Root Cause**: Re-rasterization was double-expanding bboxes (`expandBBox` called on already-expanded bbox)
+- **Solution**: Store original course bbox and use consistently for all re-rasterization
+- **Files Modified**: 
+  - `dashboard.tsx` (line 176) - Store original course bbox
+  - `dashboard.tsx` (lines 288-290) - Use original bbox for re-rasterization
+  - `CesiumCanvas.tsx` (line 1052) - Visual overlay now uses `activeMask.bbox`
+
+✅ **Optimizer Integration**: Fixed optimizer not recognizing user-drawn features
+- **Problem**: Double-application of user polygons (once in dashboard, once in CesiumCanvas)
+- **Solution**: Simplified CesiumCanvas to use maskBuffer directly since it already contains user polygons
+- **Files Modified**: 
+  - `CesiumCanvas.tsx` (lines 458-468) - Removed double-application of user polygons
+  - `CesiumCanvas.tsx` (lines 396-400) - Cleaned up drawing manager callbacks
+
+✅ **Sample Point Coloring**: Fixed visual classification mismatch where sampling was correct but visual display was wrong
+- **Problem**: Sample points not visually reflecting their correct classification (e.g., OB points showing as fairway)
+- **Solution**: Fixed coordinate system alignment and added comprehensive debugging
+- **Files Modified**:
+  - `SamplesLayer.ts` (lines 135-142) - Added debugging for visual color application
+  - `CesiumCanvas.tsx` (lines 614-643) - Added detailed sampling and classification logging
+
+**Technical Implementation Details:**
+
+**Re-rasterization Pipeline:**
+1. User draws polygon with ConditionDrawingManager → calls `finish()`
+2. Dashboard `userPolygons` state updates via `onUserPolygonsChange` callback
+3. Dashboard useEffect detects change → calls `createMaskFromFeatures()` with original bbox
+4. `applyUserPolygonsToMask()` adds user polygons to fresh base mask
+5. `setMaskBuffer()` updates state → propagates to CesiumCanvas and OptimizerPanel
+6. Visual overlay and sampling now use identical coordinate system
+
+**Coordinate System Fix:**
+- **Before**: Visual overlay used old bbox, sampling used new bbox → misalignment
+- **After**: Both systems use `activeMask.bbox` → perfect alignment
+- **Key Change**: Stored `originalCourseBbox` to prevent bbox expansion drift
+
+**Data Flow Verification:**
+- Added debugging throughout pipeline to verify mask data reaches optimizer correctly
+- Console logs show bbox coordinates, dimensions, class distributions, and OB point locations
+- Visual color debugging with temporary red OB points (reverted to white after verification)
+
+**Dependencies Added:**
+- `uuid` package for polygon ID generation (required by ConditionDrawingManager)
+
+**Files Created/Modified:**
+- `dashboard.tsx`: Re-rasterization system, original bbox storage, debugging
+- `CesiumCanvas.tsx`: Simplified mask handling, coordinate alignment, debugging
+- `SamplesLayer.ts`: Visual color debugging, OB point logging
+- `OptimizerPanel.tsx`: Mask data debugging for optimizer verification
+
+**Known Working Features:**
+✅ Draw polygons (any condition: OB, water, bunker, etc.)
+✅ Polygons persist after "Finish polygon"
+✅ Visual overlay matches sampling exactly
+✅ Sample points colored correctly based on drawn features
+✅ Expected Strokes calculation includes user-drawn features
+✅ Optimizer receives correct mask data with user polygons
+
+**Testing Workflow:**
+1. Load course → Draw OB/water/bunker polygon → Finish drawing
+2. Set start/aim/pin points → Enable sample visibility
+3. Verify sample points in drawn area show correct colors (white for OB, blue for water, etc.)
+4. Run optimization → Verify optimizer avoids drawn penalty areas
+5. Check console logs for coordinate alignment and class distribution verification
+
+**Next Development Priorities:**
+1. ✅ **User Drawing System** - Now fully implemented and working
+2. **Grid Search Optimizer** - Alternative to CEM algorithm
+3. **Advanced Short Game** - Slope-aware calculations within 45 yards
+4. **Mobile UI** - Responsive design for smaller screens 
