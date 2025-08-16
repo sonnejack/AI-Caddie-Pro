@@ -40,7 +40,7 @@ export default function AimPanel({ state, onPointSet, onSkillChange, onRollCondi
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base font-semibold text-secondary">Shot Setup</CardTitle>
+        <CardTitle className="text-base font-semibold text-foreground">Shot Setup</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 pt-0">
         {/* Point Pickers */}

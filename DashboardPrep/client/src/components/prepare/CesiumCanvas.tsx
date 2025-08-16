@@ -1258,7 +1258,7 @@ function CesiumCanvas({
       <Card className="overflow-hidden">
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-semibold text-secondary">Course View</CardTitle>
+          <CardTitle className="text-lg font-semibold text-foreground">Course View</CardTitle>
           <div className="flex items-center space-x-2">
             <Button
               variant="ghost"

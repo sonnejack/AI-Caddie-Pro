@@ -205,7 +205,7 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
   return (
     <Card className="mt-3">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base font-semibold text-secondary">Shot Metrics</CardTitle>
+        <CardTitle className="text-base font-semibold text-foreground">Shot Metrics</CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
         {/* Main Metrics Grid */}

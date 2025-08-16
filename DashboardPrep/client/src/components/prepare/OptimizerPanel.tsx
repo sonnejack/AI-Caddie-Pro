@@ -376,38 +376,38 @@ export default function OptimizerPanel({
                   key={index}
                   className={`p-3 rounded-lg border cursor-pointer transition-colors ${
                     index === 0 
-                      ? 'bg-yellow-50 border-yellow-300 hover:bg-yellow-100' // Gold
+                      ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-500 hover:bg-yellow-100 dark:hover:bg-yellow-800/30' // Gold
                       : index === 1
-                      ? 'bg-gray-50 border-gray-300 hover:bg-gray-100'      // Silver
+                      ? 'bg-gray-50 dark:bg-gray-800/50 border-gray-300 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700/50'      // Silver
                       : index === 2
-                      ? 'bg-orange-50 border-orange-300 hover:bg-orange-100' // Bronze
-                      : 'bg-slate-250 border-slate-500 hover:bg-slate-300'    // Good ES
+                      ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-500 hover:bg-orange-100 dark:hover:bg-orange-800/30' // Bronze
+                      : 'bg-slate-50 dark:bg-slate-800/50 border-slate-300 dark:border-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700/50'    // Good ES
                   }`}
                   onClick={() => handleCandidateClick(candidate, index + 1)}
                 >
                   <div className="flex justify-between items-center mb-1">
                     <span className={`text-sm font-medium ${
-                      index === 0 ? 'text-yellow-800' : 
-                      index === 1 ? 'text-gray-800' : 
-                      index === 2 ? 'text-orange-800' : 'text-slate-800'
+                      index === 0 ? 'text-yellow-800 dark:text-yellow-200' : 
+                      index === 1 ? 'text-gray-800 dark:text-gray-200' : 
+                      index === 2 ? 'text-orange-800 dark:text-orange-200' : 'text-slate-800 dark:text-slate-200'
                     }`}>
                       #{index + 1} {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '✨'}
                     </span>
                     <Badge 
                       variant="secondary" 
                       className={
-                        index === 0 ? 'bg-yellow-200 text-yellow-800' : 
-                        index === 1 ? 'bg-gray-200 text-gray-800' :
-                        index === 2 ? 'bg-orange-200 text-orange-800' : 'bg-slate-200 text-slate-800'
+                        index === 0 ? 'bg-yellow-200 dark:bg-yellow-700 text-yellow-800 dark:text-yellow-100' : 
+                        index === 1 ? 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100' :
+                        index === 2 ? 'bg-orange-200 dark:bg-orange-700 text-orange-800 dark:text-orange-100' : 'bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-100'
                       }
                     >
                       {index === 0 ? 'Best' : getDifferenceFromBest(candidate, candidates[0].es)}
                     </Badge>
                   </div>
                   <div className={`text-sm ${
-                    index === 0 ? 'text-yellow-700' : 
-                    index === 1 ? 'text-gray-700' : 
-                    index === 2 ? 'text-orange-700' : 'text-slate-700'
+                    index === 0 ? 'text-yellow-700 dark:text-yellow-300' : 
+                    index === 1 ? 'text-gray-700 dark:text-gray-300' : 
+                    index === 2 ? 'text-orange-700 dark:text-orange-300' : 'text-slate-700 dark:text-slate-300'
                   }`}>
                     <p>ES: <span className="font-medium">{formatES(candidate.es, candidate.esCi95)}</span></p>
                     <p>Position: <span className="font-mono text-xs">{candidate.lat.toFixed(6)}, {candidate.lon.toFixed(6)}</span></p>

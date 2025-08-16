@@ -86,7 +86,9 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
           </Button>
         </div>
       </CardHeader>
-      {!isCollapsed && (
+      <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
+        isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[1000px] opacity-100'
+      }`}>
         <CardContent className="space-y-4">
         {/* Mode Toggle */}
         <div className="flex bg-muted rounded-lg p-1">
@@ -159,7 +161,7 @@ export default function CoursePicker({ selectedCourseId, onCourseSelect }: Cours
           )}
         </div>
         </CardContent>
-      )}
+      </div>
     </Card>
   );
 }

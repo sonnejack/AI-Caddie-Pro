@@ -201,7 +201,7 @@ export default function HoleNavigator({
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-semibold text-secondary">Hole Navigation</CardTitle>
+          <CardTitle className="text-lg font-semibold text-foreground">Hole Navigation</CardTitle>
           <div className="flex items-center space-x-2">
             <Button
               variant="ghost"

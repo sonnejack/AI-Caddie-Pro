@@ -15,15 +15,15 @@ export type Callbacks = {
 };
 
 export const CONDITION_COLORS = {
-  green:   { fill: "rgba(108,255,138,0.25)", outline: "#2ecc71" },
-  fairway: { fill: "rgba(40,180,60,0.20)",   outline: "#27ae60" },
-  tee:     { fill: "rgba(176,224,230,0.25)", outline: "#5dade2" },
-  bunker:  { fill: "rgba(210,180,140,0.40)", outline: "#d2b48c" },
-  water:   { fill: "rgba(100,149,237,0.35)", outline: "#3498db" },
-  hazard:  { fill: "rgba(231,76,60,0.30)",   outline: "#e74c3c" },
-  OB:      { fill: "rgba(255,255,255,0.50)", outline: "#000000" },
-  recovery:{ fill: "rgba(142,68,173,0.30)",  outline: "#8e44ad" }, // purple
-  rough:   { fill: "rgba(107,142,35,0.30)",  outline: "#6b8e23" },
+  green:   { fill: "rgba(108,200,138,0.25)", outline: "#52a373" },
+  fairway: { fill: "rgba(40,150,60,0.20)",   outline: "#4a8560" },
+  tee:     { fill: "rgba(156,204,220,0.25)", outline: "#7ba3c2" },
+  bunker:  { fill: "rgba(190,160,120,0.40)", outline: "#b8a082" },
+  water:   { fill: "rgba(80,129,207,0.35)", outline: "#5a8db3" },
+  hazard:  { fill: "rgba(201,76,60,0.30)",   outline: "#c4685c" },
+  OB:      { fill: "rgba(200,200,200,0.50)", outline: "#666666" },
+  recovery:{ fill: "rgba(122,68,153,0.30)",  outline: "#7a5499" }, // muted purple
+  rough:   { fill: "rgba(87,122,35,0.30)",  outline: "#6b8e57" },
 } as const;
 
 export class ConditionDrawingManager {

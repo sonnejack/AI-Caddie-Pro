@@ -75,7 +75,7 @@ export default function ConditionDrawer() {
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-semibold text-secondary">Drawing Tools</CardTitle>
+          <CardTitle className="text-lg font-semibold text-foreground">Drawing Tools</CardTitle>
           <Button
             variant="ghost"
             size="sm"
@@ -86,7 +86,9 @@ export default function ConditionDrawer() {
           </Button>
         </div>
       </CardHeader>
-      {!isCollapsed && (
+      <div className={`transition-all duration-300 ease-in-out overflow-hidden ${
+        isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[1000px] opacity-100'
+      }`}>
         <CardContent className="space-y-3">
           {/* Drawing Status */}
           {isDrawing && (
@@ -102,37 +104,38 @@ export default function ConditionDrawer() {
             </div>
           )}
 
-          {conditionTypes.map((condition) => {
-            const isActiveDrawing = currentDrawingType === condition.name && isDrawing;
-            const isDisabled = isDrawing && !isActiveDrawing;
-            
-            return (
-              <Button
-                key={condition.name}
-                variant={isActiveDrawing ? "default" : "outline"}
-                disabled={isDisabled}
-                className={`w-full justify-between p-3 h-auto transition-all duration-200 ${
-                  isActiveDrawing 
-                    ? 'bg-blue-600 text-white shadow-md' 
-                    : isDisabled 
-                      ? 'opacity-50 cursor-not-allowed' 
-                      : 'hover:bg-muted/50'
-                }`}
-                onClick={() => handleDrawCondition(condition.name)}
-              >
-                <div className="flex items-center space-x-3">
-                  <div 
-                    className="w-4 h-4 rounded" 
-                    style={{ backgroundColor: condition.color }}
-                  />
+          <div className="grid grid-cols-3 gap-2">
+            {conditionTypes.map((condition) => {
+              const isActiveDrawing = currentDrawingType === condition.name && isDrawing;
+              const isDisabled = isDrawing && !isActiveDrawing;
+              
+              return (
+                <Button
+                  key={condition.name}
+                  variant="outline"
+                  disabled={isDisabled}
+                  className={`h-10 p-2 transition-all duration-200 flex items-center justify-center border-2 ${
+                    isActiveDrawing 
+                      ? 'bg-blue-600 text-white shadow-md border-blue-600' 
+                      : isDisabled 
+                        ? 'opacity-50 cursor-not-allowed' 
+                        : 'hover:bg-muted/50'
+                  }`}
+                  style={{
+                    borderColor: isActiveDrawing ? undefined : condition.color
+                  }}
+                  onClick={() => handleDrawCondition(condition.name)}
+                >
                   <span className="text-sm font-medium capitalize">
-                    {isActiveDrawing ? `✅ Drawing ${condition.name}` : `Mark ${condition.name}`}
+                    {condition.name === 'OB' ? 'OB' : condition.name}
+                    {isActiveDrawing && (
+                      <i className="fas fa-check ml-1 text-xs"></i>
+                    )}
                   </span>
-                </div>
-                <i className={`fas ${isActiveDrawing ? 'fa-check' : 'fa-pencil-alt'} ${isActiveDrawing ? 'text-white' : 'text-gray-400'}`}></i>
-              </Button>
-            );
-          })}
+                </Button>
+              );
+            })}
+          </div>
 
           <div className="pt-4 border-t border-slate-200 space-y-2">
             {/* Drawing Controls */}
@@ -184,7 +187,7 @@ export default function ConditionDrawer() {
             )}
           </div>
         </CardContent>
-      )}
+      </div>
     </Card>
   );
 }

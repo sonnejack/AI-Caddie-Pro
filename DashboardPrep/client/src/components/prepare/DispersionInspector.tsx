@@ -316,7 +316,7 @@ export default function DispersionInspector({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base font-semibold text-secondary">Dispersion Analysis</CardTitle>
+        <CardTitle className="text-base font-semibold text-foreground">Dispersion Analysis</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 pt-0">
         {/* Ellipse Dimensions */}
