@@ -12,6 +12,7 @@ import MetricsBar from '../components/prepare/MetricsBar';
 import StatsTab from '../components/placeholders/StatsTab';
 import TrendsTab from '../components/placeholders/TrendsTab';
 import DispersionTab from '../components/placeholders/DispersionTab';
+import AboutTab from '../components/AboutTab';
 import { usePrepareState } from '../hooks/usePrepareState';
 import { SKILL_PRESETS } from '@shared/types';
 import { createMaskFromFeatures, applyUserPolygonsToMask } from '@/lib/maskPainter';
@@ -498,7 +499,7 @@ export default function Dashboard() {
               
               {/* Tabs in Header */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
-                <TabsList className="grid grid-cols-5 bg-transparent h-auto p-0">
+                <TabsList className="grid grid-cols-6 bg-transparent h-auto p-0">
                   <TabsTrigger 
                     value="prepare" 
                     className="tab-button flex items-center justify-center whitespace-nowrap py-2 px-3 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
@@ -528,6 +529,12 @@ export default function Dashboard() {
                     className="tab-button flex items-center justify-center whitespace-nowrap py-2 px-3 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
                   >
                     <i className="fas fa-bullseye mr-2"></i>Dispersion
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="about"
+                    className="tab-button flex items-center justify-center whitespace-nowrap py-2 px-3 border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary font-medium text-sm"
+                  >
+                    <i className="fas fa-info-circle mr-2"></i>About
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -568,6 +575,10 @@ export default function Dashboard() {
 
           <TabsContent value="dispersion" className="mt-0">
             <DispersionTab />
+          </TabsContent>
+
+          <TabsContent value="about" className="mt-0">
+            <AboutTab />
           </TabsContent>
         </Tabs>
       </main>

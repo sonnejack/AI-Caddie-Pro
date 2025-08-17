@@ -193,6 +193,12 @@ export default function DispersionInspector({
 
     // Calculate results
     const meanES = esResults.reduce((sum, es) => sum + es, 0) / esResults.length;
+    
+    // Calculate standard error and 95% confidence interval
+    const variance = esResults.reduce((sum, es) => sum + Math.pow(es - meanES, 2), 0) / (esResults.length - 1);
+    const standardError = Math.sqrt(variance / esResults.length);
+    const ci95 = 1.96 * standardError; // 95% confidence interval
+    
     const avgProximity = totalDistance / numberOfSamples;
     const avgProximityInPlay = inPlayCount > 0 ? inPlayDistance / inPlayCount : avgProximity;
 
@@ -209,7 +215,7 @@ export default function DispersionInspector({
 
     const result = {
       mean: meanES,
-      ci95: 0.05, // Placeholder
+      ci95: ci95,
       n: numberOfSamples,
       countsByClass,
       avgProximity,

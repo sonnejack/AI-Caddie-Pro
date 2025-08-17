@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import type { LatLon, SkillPreset } from '@/lib/types';
 import type { MaskBuffer } from '@/lib/maskBuffer';
 import type { OptimizerInput, Candidate, ProgressMsg, DoneMsg, ErrorMsg, OptimizeMsg } from '@/lib/optimizer/types';
@@ -40,16 +41,17 @@ export default function OptimizerPanel({
   onAimSet,
   onOptimizationComplete
 }: OptimizerPanelProps) {
-  const [strategy, setStrategy] = useState<'CEM' | 'RingGrid'>('CEM');
+  const [strategy, setStrategy] = useState<'CEM' | 'RingGrid'>('RingGrid');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressNote, setProgressNote] = useState<string>('');
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [error, setError] = useState<string>('');
+  const [parametersOpen, setParametersOpen] = useState(false);
   
   // Advanced parameters (with defaults)
   const [maxDistance, setMaxDistance] = useState(maxCarry);
-  const [nEarly, setNEarly] = useState(350);
+  const [nEarly, setNEarly] = useState(400);
   const [ci95Stop, setCi95Stop] = useState(0.001);
   
   // Use controlled sample count from parent instead of local state
@@ -252,72 +254,85 @@ export default function OptimizerPanel({
         <CardTitle className="text-base font-semibold">Aim Optimizer</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 pt-0">
-        {/* Strategy Selection */}
-        <div className="space-y-2">
-          <Label htmlFor="strategy">Optimization Strategy</Label>
-          <Select value={strategy} onValueChange={(value: 'CEM' | 'RingGrid') => setStrategy(value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select strategy" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="CEM">CEM (Cross-Entropy Method)</SelectItem>
-              <SelectItem value="RingGrid">Ring Grid (Forward Half-Disc)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Advanced Parameters - Collapsible */}
+        <Collapsible open={parametersOpen} onOpenChange={setParametersOpen}>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" className="w-full justify-between p-2 h-auto text-sm">
+              <span>Optimizer Parameters</span>
+              <i className={`fas fa-chevron-right text-xs transition-transform duration-200 ${parametersOpen ? 'rotate-90' : ''}`}></i>
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up">
+            <div className="space-y-3 pt-2">
+              {/* Strategy Selection */}
+              <div className="space-y-2">
+                <Label htmlFor="strategy">Optimization Strategy</Label>
+                <Select value={strategy} onValueChange={(value: 'CEM' | 'RingGrid') => setStrategy(value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select strategy" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CEM">CEM (Cross-Entropy Method)</SelectItem>
+                    <SelectItem value="RingGrid">Ring Grid (Forward Half-Disc)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-        {/* Advanced Parameters */}
-        <div className="space-y-3 text-sm">
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label htmlFor="maxDistance">Max Distance (yds)</Label>
-              <Input 
-                id="maxDistance"
-                type="number" 
-                value={maxDistance} 
-                onChange={(e) => setMaxDistance(Number(e.target.value))}
-                min={50}
-                max={450}
-              />
+              {/* Advanced Parameters */}
+              <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor="maxDistance">Max Distance (yds)</Label>
+                    <Input 
+                      id="maxDistance"
+                      type="number" 
+                      value={maxDistance} 
+                      onChange={(e) => setMaxDistance(Number(e.target.value))}
+                      min={50}
+                      max={450}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="nEarly">Early Samples</Label>
+                    <Input 
+                      id="nEarly"
+                      type="number" 
+                      value={nEarly} 
+                      onChange={(e) => setNEarly(Number(e.target.value))}
+                      min={100}
+                      max={500}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor="nFinal">Final Samples</Label>
+                    <Input 
+                      id="nFinal"
+                      type="number" 
+                      value={nFinal} 
+                      onChange={(e) => onSampleCountChange?.(Number(e.target.value))}
+                      min={300}
+                      max={1000}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="ci95Stop">CI95 Threshold</Label>
+                    <Input 
+                      id="ci95Stop"
+                      type="number" 
+                      step="0.01"
+                      value={ci95Stop} 
+                      onChange={(e) => setCi95Stop(Number(e.target.value))}
+                      min={0.01}
+                      max={0.1}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
-            <div>
-              <Label htmlFor="nEarly">Early Samples</Label>
-              <Input 
-                id="nEarly"
-                type="number" 
-                value={nEarly} 
-                onChange={(e) => setNEarly(Number(e.target.value))}
-                min={100}
-                max={500}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label htmlFor="nFinal">Final Samples</Label>
-              <Input 
-                id="nFinal"
-                type="number" 
-                value={nFinal} 
-                onChange={(e) => onSampleCountChange?.(Number(e.target.value))}
-                min={300}
-                max={1000}
-              />
-            </div>
-            <div>
-              <Label htmlFor="ci95Stop">CI95 Threshold</Label>
-              <Input 
-                id="ci95Stop"
-                type="number" 
-                step="0.01"
-                value={ci95Stop} 
-                onChange={(e) => setCi95Stop(Number(e.target.value))}
-                min={0.01}
-                max={0.1}
-              />
-            </div>
-          </div>
-        </div>
+          </CollapsibleContent>
+        </Collapsible>
 
         {/* Run/Cancel Button */}
         <Button

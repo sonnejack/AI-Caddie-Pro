@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { type Hole } from '@shared/schema';
 import type { LatLon } from '@shared/types';
 import { 
@@ -14,7 +15,7 @@ import {
   HolePolyline,
   Endpoints 
 } from '@/lib/holeGeom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface HoleNavigatorProps {
   currentHole: number;
@@ -36,6 +37,16 @@ export default function HoleNavigator({
   pinLocation
 }: HoleNavigatorProps) {
   const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  
+  // Auto-expand when course is selected (when holePolylinesByRef has data)
+  useEffect(() => {
+    if (holePolylinesByRef && holePolylinesByRef.size > 0) {
+      setIsOpen(true);
+    } else {
+      setIsOpen(false);
+    }
+  }, [holePolylinesByRef]);
   
   
   // No longer need to query for holes - using real OSM data
@@ -198,68 +209,85 @@ export default function HoleNavigator({
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-semibold text-foreground">Hole Navigation</CardTitle>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handlePrevHole}
-              disabled={currentHole === 1}
-              className="h-8 w-8"
-            >
-              <i className="fas fa-chevron-left"></i>
-            </Button>
-            <div className="text-center min-w-[60px]">
-              <span className="text-sm font-medium text-secondary">
-                Hole {currentHole}
-              </span>
-              {currentHoleData && (
-                <div className="text-xs text-gray-500">
-                  Par {currentHoleData.par}
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <Card>
+        <CollapsibleTrigger asChild>
+          <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <CardTitle className="text-lg font-semibold text-foreground">Hole Navigation</CardTitle>
+                <i className={`fas fa-chevron-right text-sm text-muted-foreground transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}></i>
+              </div>
+              {isOpen && (
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePrevHole();
+                    }}
+                    disabled={currentHole === 1}
+                    className="h-8 w-8"
+                  >
+                    <i className="fas fa-chevron-left"></i>
+                  </Button>
+                  <div className="text-center min-w-[60px]">
+                    <span className="text-sm font-medium text-secondary">
+                      Hole {currentHole}
+                    </span>
+                    {currentHoleData && (
+                      <div className="text-xs text-gray-500">
+                        Par {currentHoleData.par}
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleNextHole();
+                    }}
+                    disabled={currentHole === 18}
+                    className="h-8 w-8"
+                  >
+                    <i className="fas fa-chevron-right"></i>
+                  </Button>
                 </div>
               )}
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleNextHole}
-              disabled={currentHole === 18}
-              className="h-8 w-8"
-            >
-              <i className="fas fa-chevron-right"></i>
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Navigation Error Display */}
-        {navigationError && (
-          <Alert className="border-red-200 bg-red-50">
-            <AlertDescription className="text-red-800 text-sm">
-              {navigationError}
-            </AlertDescription>
-          </Alert>
-        )}
+          </CardHeader>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up">
+          <CardContent className="space-y-4 pt-0">
+            {/* Navigation Error Display */}
+            {navigationError && (
+              <Alert className="border-red-200 bg-red-50">
+                <AlertDescription className="text-red-800 text-sm">
+                  {navigationError}
+                </AlertDescription>
+              </Alert>
+            )}
 
-        {/* Hole Grid */}
-        <div className="grid grid-cols-6 gap-2">
-          {Array.from({ length: 18 }, (_, i) => i + 1).map((hole) => (
-            <Button
-              key={hole}
-              variant={hole === currentHole ? 'default' : 'outline'}
-              size="sm"
-              className="hole-grid w-8 h-8 text-xs font-medium p-0"
-              onClick={() => handleHoleSelect(hole)}
-            >
-              {hole}
-            </Button>
-          ))}
-        </div>
+            {/* Hole Grid */}
+            <div className="grid grid-cols-6 gap-2">
+              {Array.from({ length: 18 }, (_, i) => i + 1).map((hole) => (
+                <Button
+                  key={hole}
+                  variant={hole === currentHole ? 'default' : 'outline'}
+                  size="sm"
+                  className="hole-grid w-8 h-8 text-xs font-medium p-0"
+                  onClick={() => handleHoleSelect(hole)}
+                >
+                  {hole}
+                </Button>
+              ))}
+            </div>
 
-      </CardContent>
-    </Card>
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 }
