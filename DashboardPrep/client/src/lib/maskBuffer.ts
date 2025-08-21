@@ -1,3 +1,17 @@
+export interface ElevationBake {
+  width: number;       // mask width
+  height: number;      // mask height
+  bbox: { west: number; south: number; east: number; north: number }; // same as mask
+  heightMeters: Float32Array; // length = width*height, per-pixel ground height (no offset)
+  meta: {
+    strideFeatureM: number;   // 10
+    strideNonFeatureM: number; // 20
+    sigmaPx: number;          // used in smoothing
+    sampledCount: number;     // how many Cartographics were sent
+    provider: 'CesiumTerrain' | 'None';
+  }
+}
+
 export interface MaskBuffer {
   width: number;
   height: number;
@@ -8,6 +22,7 @@ export interface MaskBuffer {
     north: number;
   };
   data: Uint8ClampedArray;
+  elevationBake?: ElevationBake;
 }
 
 export type ClassId = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
@@ -301,5 +316,45 @@ export function classToCondition(classId: ClassId): {
     default:
       return { condition: "rough", penalty: 0 };
   }
+}
+
+/**
+ * Bilinear sample from baked per-pixel heights
+ * Converts lon/lat → pixel coords using bbox, does bilinear read from heightMeters
+ * Returns null if outside bbox or bake missing
+ */
+export function sampleBakedHeight(lon: number, lat: number, bake: ElevationBake): number | null {
+  // Check bounds
+  if (lon < bake.bbox.west || lon > bake.bbox.east || 
+      lat < bake.bbox.south || lat > bake.bbox.north) {
+    return null;
+  }
+
+  // Convert to pixel coordinates (continuous)
+  const x = ((lon - bake.bbox.west) / (bake.bbox.east - bake.bbox.west)) * bake.width;
+  const y = ((bake.bbox.north - lat) / (bake.bbox.north - bake.bbox.south)) * bake.height;
+
+  // Get integer pixel coordinates for bilinear interpolation
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = Math.min(bake.width - 1, x0 + 1);
+  const y1 = Math.min(bake.height - 1, y0 + 1);
+
+  // Fractional parts
+  const fx = x - x0;
+  const fy = y - y0;
+
+  // Sample the 4 corner heights
+  const h00 = bake.heightMeters[y0 * bake.width + x0];
+  const h10 = bake.heightMeters[y0 * bake.width + x1];
+  const h01 = bake.heightMeters[y1 * bake.width + x0];
+  const h11 = bake.heightMeters[y1 * bake.width + x1];
+
+  // Bilinear interpolation
+  const h0 = h00 * (1 - fx) + h10 * fx;
+  const h1 = h01 * (1 - fx) + h11 * fx;
+  const height = h0 * (1 - fy) + h1 * fy;
+
+  return Number.isFinite(height) ? height : null;
 }
 

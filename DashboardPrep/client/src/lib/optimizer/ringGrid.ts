@@ -3,13 +3,32 @@
 // Adapted from task specification to align with existing repo structure
 
 import { OptimizerStrategy, OptimizerInput, OptimizerResult, Candidate, LL } from './types';
-import { ProgressiveStats } from '../sampling';
-import { classifyPointInstant } from '../maskLookup';
+import { ProgressiveStats, generateEllipseSamples } from '../sampling';
 import { bearingRad } from '../geo';
 import { ES } from '@shared/expectedStrokesAdapter';
 
 // Constants for coordinate conversion (matching CEM implementation)
 const M_PER_DEG_LAT = 111320;
+
+// Sample raster pixel directly (same as CesiumCanvas)
+function sampleRasterPixel(lon: number, lat: number, maskBuffer: { width: number; height: number; bbox: any; data: Uint8ClampedArray }): number {
+  const { width, height, bbox, data } = maskBuffer;
+  
+  // Convert lat/lon to pixel coordinates
+  const x = Math.floor(((lon - bbox.west) / (bbox.east - bbox.west)) * width);
+  const y = Math.floor(((bbox.north - lat) / (bbox.north - bbox.south)) * height);
+  
+  // Clamp to bounds
+  const clampedX = Math.max(0, Math.min(width - 1, x));
+  const clampedY = Math.max(0, Math.min(height - 1, y));
+  
+  // Sample pixel (assuming RGBA format, class in R channel)
+  const pixelIndex = (clampedY * width + clampedX) * 4;
+  const classId = data[pixelIndex]; // Red channel contains class ID
+  
+  // Treat unknown (0) as rough (8) - any pixel without features is rough
+  return classId === 0 ? 8 : classId;
+}
 
 interface RingGridParameters {
   sArc: number;           // Target arc spacing (default 10 meters)
@@ -57,17 +76,63 @@ export class RingGridOptimizer implements OptimizerStrategy {
     // Forward bearing: from start to pin
     const bearingForward = bearingRad(input.start.lon, input.start.lat, input.pin.lon, input.pin.lat);
     
-    // Check height grid availability for plays-like gating
-    const hasHeightGrid = !!input.heightGrid;
-    if (!hasHeightGrid) {
-      console.log('RingGrid: skipping plays-like gating (no height grid)');
+    const realMaxDistanceYards = input.eval.maxDistanceYards || (input.maxDistanceMeters / 0.9144);
+    let bufferDistanceMeters = input.maxDistanceMeters; // This already includes 30-yard buffer
+    
+    console.log(`[RingGrid] Adaptive terrain-aware search starting with ${(bufferDistanceMeters / 0.9144).toFixed(0)} yards`);
+    
+    // Phase 1: Terrain sampling with feeler points (adaptive search boundary)
+    try {
+      const feelerStep = 5; // degrees
+      const feelerPoints: Array<{ bearing: number; maxValidRadius: number }> = [];
+      
+      for (let bearing = 0; bearing < 180; bearing += feelerStep) {
+        const bearingRad = bearing * Math.PI / 180;
+        let validRadius = 0;
+        
+        // Sample points along this bearing
+        for (let testRadius = 10; testRadius <= bufferDistanceMeters; testRadius += 20) {
+          const testX = testRadius * Math.sin(bearingRad);
+          const testY = testRadius * Math.cos(bearingRad);
+          const testPoint = toLL({ x: testX, y: testY });
+          
+          // Check if this point is within the real max distance constraint
+          const surfaceDistance = this.calculateDistance(input.start, testPoint);
+          const surfaceDistanceYards = surfaceDistance / 0.9144;
+          
+          // Placeholder for elevation-based plays-like calculation
+          // In practice, this would use live elevation sampling
+          const playsLikeYards = surfaceDistanceYards; // Simplified for now
+          
+          if (playsLikeYards <= realMaxDistanceYards) {
+            validRadius = testRadius;
+          } else {
+            break; // Stop extending in this direction
+          }
+        }
+        
+        feelerPoints.push({ bearing, maxValidRadius: validRadius });
+      }
+      
+      // Calculate dynamic search radius based on terrain constraints
+      const avgValidRadius = feelerPoints.reduce((sum, p) => sum + p.maxValidRadius, 0) / feelerPoints.length;
+      const minValidRadius = Math.min(...feelerPoints.map(p => p.maxValidRadius));
+      
+      // Use conservative estimate but don't go below original radius
+      const adaptiveRadius = Math.max(minValidRadius * 1.1, avgValidRadius * 0.9);
+      bufferDistanceMeters = Math.min(bufferDistanceMeters, adaptiveRadius);
+      
+      console.log(`[RingGrid] Adaptive search: Avg valid radius ${(avgValidRadius/0.9144).toFixed(0)}y, min ${(minValidRadius/0.9144).toFixed(0)}y, using ${(bufferDistanceMeters/0.9144).toFixed(0)}y`);
+      
+    } catch (error) {
+      console.warn(`[RingGrid] Adaptive search failed, using original buffer:`, error);
     }
     
     let evalCount = 0;
     const allCandidates: Array<{ ll: LL; es: number; ci95?: number }> = [];
     
-    // Phase 1: Ring Grid Search
-    const R = input.maxDistanceMeters;
+    // Phase 2: Ring Grid Search (with adaptive buffer, no elevation filtering)
+    const R = bufferDistanceMeters;
     const numRings = Math.ceil(R / params.dr);
     
     for (let k = 1; k <= numRings; k++) {
@@ -99,15 +164,15 @@ export class RingGridOptimizer implements OptimizerStrategy {
         const aimMeters = { x, y };
         const aimLL = toLL(aimMeters);
         
-        // Apply constraints
-        if (!this.passesConstraints(aimLL, aimMeters, input, pinMeters, startToPinDist, hasHeightGrid)) {
+        // Apply basic constraints (no elevation filtering yet)
+        if (!this.passesBasicConstraints(aimLL, input, bufferDistanceMeters)) {
           continue;
         }
         
         // Evaluate with progressive MC
-        const { es, ci95 } = await this.evaluateAimPointProgressive(aimLL, input, signal);
+        const result = await this.evaluateAimPointProgressive(aimLL, input, signal);
         evalCount++;
-        allCandidates.push({ ll: aimLL, es, ci95 });
+        allCandidates.push({ ll: aimLL, es: result.es, ci95: result.ci95, conditionBreakdown: result.conditionBreakdown });
       }
       
       // Update progress
@@ -143,14 +208,14 @@ export class RingGridOptimizer implements OptimizerStrategy {
           };
           const refinedLL = toLL(refinedMeters);
           
-          // Apply same constraints
-          if (!this.passesConstraints(refinedLL, refinedMeters, input, pinMeters, startToPinDist, hasHeightGrid)) {
+          // Apply basic constraints
+          if (!this.passesBasicConstraints(refinedLL, input, bufferDistanceMeters)) {
             continue;
           }
           
-          const { es, ci95 } = await this.evaluateAimPointProgressive(refinedLL, input, signal);
+          const result = await this.evaluateAimPointProgressive(refinedLL, input, signal);
           evalCount++;
-          allCandidates.push({ ll: refinedLL, es, ci95 });
+          allCandidates.push({ ll: refinedLL, es: result.es, ci95: result.ci95, conditionBreakdown: result.conditionBreakdown });
         }
       }
       
@@ -179,96 +244,69 @@ export class RingGridOptimizer implements OptimizerStrategy {
       const aimMeters = { x, y };
       const aimLL = toLL(aimMeters);
       
-      if (!this.passesConstraints(aimLL, aimMeters, input, pinMeters, startToPinDist, hasHeightGrid)) {
+      if (!this.passesBasicConstraints(aimLL, input, bufferDistanceMeters)) {
         continue;
       }
       
-      const { es, ci95 } = await this.evaluateAimPointProgressive(aimLL, input, signal);
+      const result = await this.evaluateAimPointProgressive(aimLL, input, signal);
       evalCount++;
-      allCandidates.push({ ll: aimLL, es, ci95 });
+      allCandidates.push({ ll: aimLL, es: result.es, ci95: result.ci95, conditionBreakdown: result.conditionBreakdown });
     }
     
-    // Phase 4: Final selection with spatial separation
+    // Phase 4: Sort by Expected Strokes and return top candidates for main thread filtering
     if (signal.aborted) throw new Error('Optimization aborted');
     
-    // Sort all candidates by ES
+    // Sort all candidates by ES (best first)
     allCandidates.sort((a, b) => a.es - b.es);
+    console.log(`[RingGrid] Sorted ${allCandidates.length} candidates by Expected Strokes`);
     
-    // Select final candidates with spatial separation
-    const finalCandidates: Candidate[] = [];
-    const minSeparationM = input.constraints?.minSeparationMeters || 3;
-    const maxFinalCandidates = 8;
+    // Return top candidates for main thread elevation filtering
+    // NOTE: Elevation filtering moved to main thread where Cesium is accessible
+    console.log(`[RingGrid] Returning top 100 candidates for main thread elevation filtering`);
     
-    for (const candidate of allCandidates) {
-      if (finalCandidates.length >= maxFinalCandidates) break;
-      
-      // Check separation from existing candidates
-      let tooClose = false;
-      for (const existing of finalCandidates) {
-        const dist = this.calculateDistance(candidate.ll, { lon: existing.lon, lat: existing.lat });
-        if (dist < minSeparationM) {
-          tooClose = true;
-          break;
-        }
-      }
-      
-      if (!tooClose) {
-        // Re-evaluate with final sample count for stability
-        const { es: finalES, ci95: finalCI95 } = await this.evaluateAimPointProgressive(
-          candidate.ll, 
-          { ...input, eval: { ...input.eval, nEarly: input.eval.nFinal } }, 
-          signal
-        );
-        evalCount++;
-        
-        finalCandidates.push({
-          lon: candidate.ll.lon,
-          lat: candidate.ll.lat,
-          es: finalES,
-          esCi95: finalCI95
-        });
-      }
-    }
-    
-    // Final sort by ES (ascending - lower is better)
-    finalCandidates.sort((a, b) => a.es - b.es);
+    const topCandidatesForFiltering = allCandidates.slice(0, 100).map(c => ({
+      lon: c.ll.lon,
+      lat: c.ll.lat,
+      es: c.es,
+      esCi95: c.ci95 || 0,
+      conditionBreakdown: c.conditionBreakdown
+    }));
     
     return {
-      candidates: finalCandidates,
+      candidates: topCandidatesForFiltering,
       iterations: numRings,
       evalCount,
       diagnostics: {
         totalCandidatesEvaluated: allCandidates.length,
         ringCount: numRings,
         refinementCandidates: params.topSeeds,
-        randomCoveragePoints: params.randomCover
+        randomCoveragePoints: params.randomCover,
+        returnedForFiltering: Math.min(100, allCandidates.length)
       }
     };
   }
   
-  private passesConstraints(
-    aimLL: LL, 
-    aimMeters: { x: number; y: number }, 
+  /**
+   * Basic constraint check (no elevation filtering)
+   */
+  private passesBasicConstraints(
+    aimLL: LL,
     input: OptimizerInput,
-    pinMeters: { x: number; y: number },
-    startToPinDist: number,
-    hasHeightGrid: boolean
+    bufferDistanceMeters: number
   ): boolean {
-    // Use proper geodesic distance calculation instead of coordinate distance
+    // Use proper geodesic distance calculation
     const startToAimDistanceMeters = this.calculateDistance(input.start, aimLL);
-    const startToAimDistanceYards = startToAimDistanceMeters / 0.9144;
-    const maxDistanceYards = input.maxDistanceMeters / 0.9144;
     
-    // Primary constraint: plays-like distance (without elevation, just surface distance) ≤ max driver distance
-    if (startToAimDistanceYards > maxDistanceYards) {
+    // Must be within buffer distance (surface distance only)
+    if (startToAimDistanceMeters > bufferDistanceMeters) {
       return false;
     }
     
     // Distance constraint: don't allow aims farther from pin than start is
     if (input.constraints?.disallowFartherThanPin) {
       const aimToPinDist = this.calculateDistance(aimLL, input.pin);
-      const startToPinDistProper = this.calculateDistance(input.start, input.pin);
-      if (aimToPinDist > startToPinDistProper) {
+      const startToPinDist = this.calculateDistance(input.start, input.pin);
+      if (aimToPinDist > startToPinDist) {
         return false;
       }
     }
@@ -280,78 +318,79 @@ export class RingGridOptimizer implements OptimizerStrategy {
     aim: LL, 
     input: OptimizerInput, 
     signal: AbortSignal
-  ): Promise<{ es: number; ci95: number }> {
+  ): Promise<{ es: number; ci95: number; conditionBreakdown?: Record<number, number> }> {
     const stats = new ProgressiveStats();
+    const conditionBreakdown: Record<number, number> = {};
     const maxSamples = input.eval.nEarly;
     
-    // Calculate ellipse parameters (reuse pattern from CEM)
-    const aimToStart = {
-      x: (input.start.lon - aim.lon) * M_PER_DEG_LAT * Math.cos(aim.lat * Math.PI / 180),
-      y: (input.start.lat - aim.lat) * M_PER_DEG_LAT
+    // Calculate distance from start to aim point
+    const distance = this.calculateDistance(input.start, aim) / 0.9144; // Convert to yards
+    
+    // Calculate ellipse parameters (same as CesiumCanvas/DispersionInspector)
+    const distanceErrorPct = input.skill.distPct;
+    const lateralErrorDeg = input.skill.offlineDeg;
+    
+    // Ellipse semi-axes calculations (same as ellipseAxes function)
+    let a = distance * (distanceErrorPct / 100); // distance axis
+    let b = distance * Math.tan(lateralErrorDeg * Math.PI / 180); // lateral axis
+    
+    // Apply roll condition multipliers to ellipse dimensions
+    a = a * input.rollMultipliers.depthMultiplier;
+    b = b * input.rollMultipliers.widthMultiplier;
+    
+    // Calculate bearing from start to aim (same as CesiumCanvas)
+    const bearing = Math.atan2(
+      (aim.lon - input.start.lon) * Math.cos((input.start.lat + aim.lat) / 2 * Math.PI / 180),
+      aim.lat - input.start.lat
+    );
+    
+    // Generate samples using SAME function as CesiumCanvas
+    // Note: CesiumCanvas uses (semiMajor=lateral, semiMinor=distance) but ellipseAxes returns (a=distance, b=lateral)
+    // So we swap them: semiMajor=b (lateral), semiMinor=a (distance)
+    const samplePoints = generateEllipseSamples(maxSamples, b, a, bearing, aim, 1);
+    
+    // Create mock mask buffer for classification
+    const mockMaskBuffer = {
+      width: input.mask.width,
+      height: input.mask.height,
+      bbox: input.mask.bbox,
+      data: input.mask.classes
     };
-    const distance = Math.sqrt(aimToStart.x ** 2 + aimToStart.y ** 2);
-    const bearing = Math.atan2(aimToStart.x, aimToStart.y);
     
-    // Convert skill parameters to ellipse dimensions (in meters)
-    const distanceYards = distance / 0.9144;
-    const semiMajorYards = (input.skill.distPct / 100) * distanceYards;
-    const semiMinorYards = distanceYards * Math.tan(input.skill.offlineDeg * Math.PI / 180);
-    const semiMajorM = semiMajorYards * 0.9144;
-    const semiMinorM = semiMinorYards * 0.9144;
-    
-    // Progressive Monte Carlo with uniform ellipse sampling
+    // Evaluate each sample point
     for (let i = 0; i < maxSamples; i++) {
       if (signal.aborted) throw new Error('Evaluation aborted');
       
-      const sample = this.sampleEllipse(aim, semiMajorM, semiMinorM, bearing);
-      const classId = classifyPointInstant(sample.lon, sample.lat, {
-        width: input.mask.width,
-        height: input.mask.height,
-        bbox: input.mask.bbox,
-        data: input.mask.classes
-      } as any);
+      // Extract point coordinates from Float64Array
+      const landingLon = samplePoints[i * 2];
+      const landingLat = samplePoints[i * 2 + 1];
       
-      const condition = this.classIdToCondition(classId);
-      const distanceToPin = this.calculateDistance(sample, input.pin);
-      const distanceToPinYards = distanceToPin / 0.9144;
+      // Classify landing point using same function as CesiumCanvas
+      const classId = sampleRasterPixel(landingLon, landingLat, mockMaskBuffer);
       
-      const es = ES.calculate(distanceToPinYards, condition);
+      // Track condition breakdown for debugging
+      conditionBreakdown[classId] = (conditionBreakdown[classId] || 0) + 1;
+      
+      // Convert to condition and calculate distance to pin with penalty
+      const { condition, penalty } = this.classIdToConditionWithPenalty(classId);
+      const distanceToPin = this.calculateDistance({ lon: landingLon, lat: landingLat }, input.pin) / 0.9144; // Convert to yards
+      
+      // Calculate expected strokes for this outcome
+      const baseES = ES.calculate(distanceToPin, condition);
+      const es = baseES + penalty;
       stats.add(es);
       
       // Early stop when 95% CI ≤ ci95Stop
       if (i > 30 && stats.getConfidenceInterval95() <= input.eval.ci95Stop) {
+        console.log(`[RingGrid] Early exit at ${i + 1} samples, CI95=${stats.getConfidenceInterval95().toFixed(4)}`);
         break;
       }
     }
     
     return {
       es: stats.getMean(),
-      ci95: stats.getConfidenceInterval95()
-    };
-  }
-  
-  private sampleEllipse(center: LL, semiMajorM: number, semiMinorM: number, bearing: number): LL {
-    // Uniform sampling in unit disk (matching CEM implementation)
-    const u1 = Math.random();
-    const u2 = Math.random();
-    const r = Math.sqrt(u1);
-    const theta = 2 * Math.PI * u2;
-    
-    // Transform to ellipse local coordinates
-    const x = semiMajorM * r * Math.cos(theta);
-    const y = semiMinorM * r * Math.sin(theta);
-    
-    // Rotate by bearing
-    const cos_bearing = Math.cos(bearing);
-    const sin_bearing = Math.sin(bearing);
-    const x_rot = x * cos_bearing - y * sin_bearing;
-    const y_rot = x * sin_bearing + y * cos_bearing;
-    
-    // Convert to lat/lon
-    const mPerDegLon = M_PER_DEG_LAT * Math.cos(center.lat * Math.PI / 180);
-    return {
-      lon: center.lon + x_rot / mPerDegLon,
-      lat: center.lat + y_rot / M_PER_DEG_LAT
+      ci95: stats.getConfidenceInterval95(),
+      conditionBreakdown
     };
   }
   
@@ -367,14 +406,24 @@ export class RingGridOptimizer implements OptimizerStrategy {
     return R * c; // meters
   }
   
-  private classIdToCondition(classId: number): 'green'|'fairway'|'rough'|'sand'|'recovery'|'water' {
+  private classIdToConditionWithPenalty(classId: number): { condition: 'green'|'fairway'|'rough'|'sand'|'recovery'|'water'; penalty: number } {
     switch (classId) {
-      case 5: return 'green';
-      case 6: return 'fairway';
-      case 4: return 'sand'; // bunker
-      case 2: return 'water';
-      case 7: return 'recovery';
-      default: return 'rough'; // 0,1,3,8,9 -> rough
+      case 0: return { condition: 'rough', penalty: 0 }; // UNKNOWN -> rough
+      case 1: return { condition: 'rough', penalty: 2 }; // OB -> rough + 2
+      case 2: return { condition: 'water', penalty: 0 }; // WATER (already includes +1 in engine)
+      case 3: return { condition: 'rough', penalty: 1 }; // HAZARD -> rough + 1
+      case 4: return { condition: 'sand', penalty: 0 };  // BUNKER -> sand
+      case 5: return { condition: 'green', penalty: 0 }; // GREEN
+      case 6: return { condition: 'fairway', penalty: 0 }; // FAIRWAY
+      case 7: return { condition: 'recovery', penalty: 0 }; // RECOVERY
+      case 8: return { condition: 'rough', penalty: 0 }; // ROUGH
+      case 9: return { condition: 'fairway', penalty: 0 }; // TEE -> fairway
+      default: return { condition: 'rough', penalty: 0 };
     }
   }
+  
+  private classIdToCondition(classId: number): 'green'|'fairway'|'rough'|'sand'|'recovery'|'water' {
+    return this.classIdToConditionWithPenalty(classId).condition;
+  }
+
 }

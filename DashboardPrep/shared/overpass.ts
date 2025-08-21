@@ -218,13 +218,18 @@ export class OverpassImporter {
 
     console.log(`[Import] Processing ${geoJson.features.length} features`);
 
+    let processed = 0;
     for (const feature of geoJson.features) {
       const properties = feature.properties || {};
       const geometry = feature.geometry;
       
       if (!geometry) continue;
 
-      console.log(`[Import] Processing feature: golf=${properties.golf}, surface=${properties.surface}, natural=${properties.natural}, waterway=${properties.waterway}, highway=${properties.highway}`);
+      // Reduce verbose logging - only log every 50th feature
+      if (processed % 50 === 0) {
+        console.log(`[Import] Processing ${processed}/${geoJson.features.length} features...`);
+      }
+      processed++;
 
       // Extract hole polylines (golf=hole ways)
       if (properties.golf === 'hole' && this.isLineGeometry(geometry)) {

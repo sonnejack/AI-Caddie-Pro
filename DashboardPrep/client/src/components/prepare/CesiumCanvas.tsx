@@ -48,6 +48,11 @@ interface CesiumCanvasProps {
   maskBuffer?: MaskBuffer;
   esResult?: ESResult;
   onCameraFlyTo?: (camera: { position: LatLon, heading: number, pitch: number, height: number }) => void;
+  onSampleData?: (data: { 
+    points: LatLon[], 
+    classes: number[], 
+    pointsLL: Float64Array 
+  }) => void;
   holePolyline?: { positions: { lon: number; lat: number }[] };
   holeEndpoints?: { teeLL: LatLon; greenLL: LatLon; primaryGreen: any };
   vectorFeatures?: any; // ImportResponse['holes'][0]['features']
@@ -133,7 +138,8 @@ function CesiumCanvas({
   currentHole,
   pinLocation,
   onUserPolygonsChange,
-  onDrawingStateChange
+  onDrawingStateChange,
+  onSampleData
 }: CesiumCanvasProps) {
   const viewerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -516,7 +522,8 @@ function CesiumCanvas({
       skill: state.skillPreset,
       rollCondition: state.rollCondition,
       samples: nSamples,
-      show: showSamples
+      show: showSamples,
+      maskVersion: activeMask ? `${activeMask.width}x${activeMask.height}_${activeMask.data.length}` : 'none'
     });
     
     // Skip if parameters haven't changed
@@ -626,8 +633,17 @@ function CesiumCanvas({
       
       // Instant raster-based coloring (no worker needed)
       if (activeMask && showSamples) {
-        console.log('🎯 Sampling using bbox:', activeMask.bbox);
-        console.log('🎯 Sampling mask dimensions:', activeMask.width, 'x', activeMask.height);
+        console.log('🎯 [CesiumCanvas] Sampling using bbox:', activeMask.bbox);
+        console.log('🎯 [CesiumCanvas] Sampling mask dimensions:', activeMask.width, 'x', activeMask.height);
+        console.log('🎯 [CesiumCanvas] ActiveMask data length:', activeMask.data.length);
+        
+        // Sample a histogram of the activeMask data to verify it contains user polygon changes
+        const maskClassCounts = new Map<number, number>();
+        for (let i = 0; i < activeMask.data.length; i += 4) {
+          const classId = activeMask.data[i];
+          maskClassCounts.set(classId, (maskClassCounts.get(classId) || 0) + 1);
+        }
+        console.log('🎯 [CesiumCanvas] ActiveMask class distribution:', Array.from(maskClassCounts.entries()).map(([k,v]) => `Class ${k}: ${v}`));
         
         // Classify points using direct raster sampling from active mask
         const pointClassifications = new Array(nSamples);
@@ -655,10 +671,37 @@ function CesiumCanvas({
         pointClassifications.forEach(classId => {
           classCounts.set(classId, (classCounts.get(classId) || 0) + 1);
         });
-        console.log('🎯 Class distribution:', Array.from(classCounts.entries()).map(([k,v]) => `Class ${k}: ${v}`));
+        console.log('🎯 [CesiumCanvas] Visual dots class distribution from', nSamples, 'points:', Array.from(classCounts.entries()).map(([k,v]) => `Class ${k}: ${v} (${(100*v/nSamples).toFixed(1)}%)`));
+        
+        // Show coordinate ranges to verify we're sampling the same area as DispersionInspector
+        const lons = [];
+        const lats = [];
+        for (let i = 0; i < nSamples; i++) {
+          lons.push(previewPoints[i * 2]);
+          lats.push(previewPoints[i * 2 + 1]);
+        }
+        console.log('🎯 [CesiumCanvas] Coordinate ranges: lon', Math.min(...lons).toFixed(6), 'to', Math.max(...lons).toFixed(6), ', lat', Math.min(...lats).toFixed(6), 'to', Math.max(...lats).toFixed(6));
         
         // Update colors immediately
         updateSampleColors(previewPoints, pointClassifications);
+        
+        // Send sample data to DispersionInspector via callback
+        if (onSampleData) {
+          const points: LatLon[] = [];
+          for (let i = 0; i < nSamples; i++) {
+            points.push({
+              lon: previewPoints[i * 2],
+              lat: previewPoints[i * 2 + 1]
+            });
+          }
+          
+          console.log('🎯 [CesiumCanvas] Sending sample data to DispersionInspector:', points.length, 'points');
+          onSampleData({
+            points,
+            classes: pointClassifications,
+            pointsLL: previewPoints
+          });
+        }
       }
     } catch (error) {
       console.error('Error generating preview samples:', error);
@@ -900,7 +943,7 @@ function CesiumCanvas({
             </svg>
           `),
           scale: 0.8,
-          verticalOrigin: (window as any).Cesium.VerticalOrigin.BOTTOM,
+          verticalOrigin: (window as any).Cesium.VerticalOrigin.CENTER,
           heightReference: (window as any).Cesium.HeightReference.CLAMP_TO_GROUND,
         }
       });
@@ -918,7 +961,7 @@ function CesiumCanvas({
             </svg>
           `),
           scale: 0.8,
-          verticalOrigin: (window as any).Cesium.VerticalOrigin.BOTTOM,
+          verticalOrigin: (window as any).Cesium.VerticalOrigin.CENTER,
           heightReference: (window as any).Cesium.HeightReference.CLAMP_TO_GROUND,
         }
       });
@@ -935,7 +978,7 @@ function CesiumCanvas({
             </svg>
           `),
           scale: 0.8,
-          verticalOrigin: (window as any).Cesium.VerticalOrigin.BOTTOM,
+          verticalOrigin: (window as any).Cesium.VerticalOrigin.CENTER,
           heightReference: (window as any).Cesium.HeightReference.CLAMP_TO_GROUND,
         }
       });
@@ -1255,7 +1298,7 @@ function CesiumCanvas({
 
   return (
     <DrawingManagerContext.Provider value={{ manager: drawingManager, state: drawingState }}>
-      <Card className="overflow-hidden">
+      <Card className="overflow-visible">
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg font-semibold text-foreground">Course View</CardTitle>
@@ -1338,7 +1381,7 @@ function CesiumCanvas({
       </CardHeader>
       <CardContent className="p-0">
         {/* 3D Canvas Container */}
-        <div className="relative h-[40vh] sm:h-[48vh] lg:h-[32rem] xl:h-[35rem] 2xl:h-[38rem] bg-gradient-to-br from-green-100 to-green-200">
+        <div className="relative h-[38vh] sm:h-[44.3vh] lg:h-[27.8rem] xl:h-[30.4rem] 2xl:h-[32.9rem] bg-gradient-to-br from-green-100 to-green-200">
           <div ref={containerRef} className="absolute inset-0" />
           
           {(!viewerReady || loadingCourse) && (

@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import type { LatLon, SkillPreset, ESResult, MaskMeta, ClassId } from '@shared/types';
+import type { LatLon, SkillPreset, ESResult, MaskMeta, ClassId, RollCondition } from '@shared/types';
+import { getRollMultipliers } from '@/lib/types';
 import type { MaskBuffer } from '@/lib/maskBuffer';
 import { ellipseAxes, uniformPointInEllipse, rotateTranslate, metersToLatLon, latLonToMeters } from '../../prepare/lib/ellipse';
+import { generateEllipseSamples } from '@/lib/sampling';
 import { sampleClassFromMask } from '@/lib/maskBuffer';
 import { MaskBufferAdapter } from '@/lib/maskAdapter';
 import { ES } from '@shared/expectedStrokesAdapter';
@@ -15,32 +17,46 @@ interface DispersionInspectorProps {
   aim?: LatLon;
   pin?: LatLon;
   skill: SkillPreset;
+  rollCondition: RollCondition;
   mask?: MaskMeta;
   maskBuffer?: MaskBuffer;
   sampleCount?: number;
+  sampleData?: { points: LatLon[], classes: number[], pointsLL: Float64Array };
   onESResult?: (result: ESResult & { samplePoints?: Array<{point: LatLon, classId: number}>, avgProximity?: number, avgProximityInPlay?: number }) => void;
 }
 
 export default function DispersionInspector({ 
-  start, aim, pin, skill, mask, maskBuffer, sampleCount = 600, onESResult 
+  start, aim, pin, skill, rollCondition, mask, maskBuffer, sampleCount = 600, sampleData, onESResult 
 }: DispersionInspectorProps) {
   const [samplingProgress, setSamplingProgress] = useState(0);
   const [processedSamples, setProcessedSamples] = useState(0);
   const [confidence, setConfidence] = useState(Infinity);
   const [status, setStatus] = useState<'idle' | 'sampling' | 'converged'>('idle');
   const [ellipseDimensions, setEllipseDimensions] = useState({ a: 0, b: 0 });
-  const [esResult, setESResult] = useState<ESResult>();
+  const [esResult, setESResult] = useState<ESResult & { samplePoints?: Array<{point: LatLon, classId: number}>, avgProximity?: number, avgProximityInPlay?: number }>();
 
   // Calculate ellipse dimensions when state changes
   useEffect(() => {
     if (start && aim) {
       const distance = calculateDistance(start, aim);
       const { a, b } = ellipseAxes(distance, skill.offlineDeg, skill.distPct);
-      setEllipseDimensions({ a, b });
+      
+      // Apply roll condition multipliers to ellipse dimensions
+      const rollMultipliers = getRollMultipliers(rollCondition);
+      const adjustedA = a * rollMultipliers.depthMultiplier;
+      const adjustedB = b * rollMultipliers.widthMultiplier;
+      
+      setEllipseDimensions({ a: adjustedA, b: adjustedB });
+      console.log('🏌️ Ellipse dimensions with roll condition:', {
+        rollCondition,
+        rollMultipliers,
+        original: { a, b },
+        adjusted: { a: adjustedA, b: adjustedB }
+      });
     } else {
       setEllipseDimensions({ a: 0, b: 0 });
     }
-  }, [start, aim, skill]);
+  }, [start, aim, skill, rollCondition]);
 
   // Use the same distance calculation as the ES worker for consistency
   const calculateDistance = (p1: LatLon, p2: LatLon) => {
@@ -55,17 +71,23 @@ export default function DispersionInspector({
   const generateEllipsePoints = useCallback((aim: LatLon, a: number, b: number, n: number): LatLon[] => {
     if (!start) return [];
     
-    // Calculate bearing from start to aim
+    // Calculate bearing from start to aim (same as CesiumCanvas)
     const startMeters = latLonToMeters(start, start);
     const aimMeters = latLonToMeters(aim, start);
     const bearing = Math.atan2(aimMeters.x - startMeters.x, aimMeters.y - startMeters.y);
     
+    // Use SAME sampling function as CesiumCanvas for consistency
+    // NOTE: CesiumCanvas uses (semiMajor=lateral, semiMinor=distance) 
+    // but ellipseAxes returns (a=distance, b=lateral), so we swap them
+    const pointsLL = generateEllipseSamples(n, b, a, bearing, aim, 1);
+    
+    // Convert Float64Array to LatLon array
     const points: LatLon[] = [];
-    for (let i = 1; i <= n; i++) {
-      const localPoint = uniformPointInEllipse(i, a, b);
-      const rotatedPoint = rotateTranslate(localPoint.x, localPoint.y, bearing, aimMeters);
-      const worldPoint = metersToLatLon(rotatedPoint.x, rotatedPoint.y, start);
-      points.push(worldPoint);
+    for (let i = 0; i < n; i++) {
+      points.push({
+        lon: pointsLL[i * 2],
+        lat: pointsLL[i * 2 + 1]
+      });
     }
     return points;
   }, [start]);
@@ -77,7 +99,19 @@ export default function DispersionInspector({
     }
     
     try {
-      console.log('🎯 Sampling', points.length, 'points using maskBuffer (these are ellipse dispersion samples representing shot outcomes)');
+      console.log('🎯 [DispersionInspector] Sampling', points.length, 'points using maskBuffer (these are ellipse dispersion samples representing shot outcomes)');
+      console.log('🎯 [DispersionInspector] MaskBuffer dimensions:', maskBuffer.width, 'x', maskBuffer.height);
+      console.log('🎯 [DispersionInspector] MaskBuffer bbox:', maskBuffer.bbox);
+      console.log('🎯 [DispersionInspector] MaskBuffer data length:', maskBuffer.data.length);
+      
+      // Sample a histogram of the mask data to verify it contains user polygon changes
+      const classCounts = new Map<number, number>();
+      for (let i = 0; i < maskBuffer.data.length; i += 4) {
+        const classId = maskBuffer.data[i];
+        classCounts.set(classId, (classCounts.get(classId) || 0) + 1);
+      }
+      console.log('🎯 [DispersionInspector] Mask class distribution:', Array.from(classCounts.entries()).map(([k,v]) => `Class ${k}: ${v}`));
+      
       const results = points.map(point => sampleClassFromMask(point.lon, point.lat, maskBuffer));
       
       // Function to map class ID to condition name for logging
@@ -97,17 +131,39 @@ export default function DispersionInspector({
         }
       };
 
-      // Log first few samples for debugging with distances to pin
+      // Log first few samples for debugging with distances to pin and pixel coordinates
       if (pin) {
         for (let i = 0; i < Math.min(5, points.length); i++) {
           const distanceToPin = calculateDistance(points[i], pin);
-          console.log(`Sample ${i + 1}: (${points[i].lat.toFixed(6)}, ${points[i].lon.toFixed(6)}) -> ${distanceToPin.toFixed(1)} yards to pin, class ${results[i]} (${getConditionName(results[i])})`);
+          
+          // Calculate what pixel coordinates this point maps to
+          const x = Math.floor(((points[i].lon - maskBuffer.bbox.west) / (maskBuffer.bbox.east - maskBuffer.bbox.west)) * maskBuffer.width);
+          const y = Math.floor(((maskBuffer.bbox.north - points[i].lat) / (maskBuffer.bbox.north - maskBuffer.bbox.south)) * maskBuffer.height);
+          const clampedX = Math.max(0, Math.min(maskBuffer.width - 1, x));
+          const clampedY = Math.max(0, Math.min(maskBuffer.height - 1, y));
+          const pixelIndex = (clampedY * maskBuffer.width + clampedX) * 4;
+          const rawClassId = maskBuffer.data[pixelIndex];
+          
+          console.log(`Sample ${i + 1}: (${points[i].lat.toFixed(6)}, ${points[i].lon.toFixed(6)}) -> ${distanceToPin.toFixed(1)}y to pin, pixel(${clampedX},${clampedY}), rawClass=${rawClassId}, finalClass=${results[i]} (${getConditionName(results[i])})`);
         }
       } else {
         for (let i = 0; i < Math.min(5, points.length); i++) {
           console.log(`Sample ${i + 1}: (${points[i].lat.toFixed(6)}, ${points[i].lon.toFixed(6)}) -> NO PIN SET, class ${results[i]} (${getConditionName(results[i])})`);
         }
       }
+      
+      // Count sampled classes and compare to mask distribution
+      const sampledClassCounts = new Map<number, number>();
+      results.forEach(classId => {
+        sampledClassCounts.set(classId, (sampledClassCounts.get(classId) || 0) + 1);
+      });
+      
+      console.log('🎯 [DispersionInspector] Landing Conditions class distribution from', results.length, 'points:', Array.from(sampledClassCounts.entries()).map(([k,v]) => `Class ${k}: ${v} (${(100*v/results.length).toFixed(1)}%)`));
+      
+      // Show coordinate ranges to verify we're sampling the same area
+      const lons = points.map(p => p.lon);
+      const lats = points.map(p => p.lat);
+      console.log('🎯 [DispersionInspector] Coordinate ranges: lon', Math.min(...lons).toFixed(6), 'to', Math.max(...lons).toFixed(6), ', lat', Math.min(...lats).toFixed(6), 'to', Math.max(...lats).toFixed(6));
       
       return results;
     } catch (error) {
@@ -124,16 +180,18 @@ export default function DispersionInspector({
     setProcessedSamples(0);
     setConfidence(Infinity);
 
-    const { a, b } = ellipseAxes(calculateDistance(start, aim), skill.offlineDeg, skill.distPct);
-    // Use sample count from props (controlled by UI slider)
-    const numberOfSamples = sampleCount;
-    console.log('🎯 Using', numberOfSamples, 'sample points for dispersion analysis');
-    
-    // Generate points
-    const points = generateEllipsePoints(aim, a, b, numberOfSamples);
-    const classes = await sampleClasses(points);
+    // Use sample data from CesiumCanvas if available, otherwise skip
+    if (!sampleData || !sampleData.points.length) {
+      console.log('🎯 [DispersionInspector] No sample data available from CesiumCanvas yet');
+      setStatus('idle');
+      return;
+    }
 
-    console.log('🎯 Generated', points.length, 'ellipse points and', classes.length, 'class samples');
+    const points = sampleData.points;
+    const classes = sampleData.classes as ClassId[];
+
+    console.log('🎯 [DispersionInspector] Using', points.length, 'sample points from CesiumCanvas');
+    console.log('🎯 [DispersionInspector] Sample data received - points:', points.length, 'classes:', classes.length);
 
     // Calculate Expected Strokes for each point directly (no worker needed for simple calculation)
     const esResults: number[] = [];
@@ -141,6 +199,7 @@ export default function DispersionInspector({
     let inPlayDistance = 0;
     let inPlayCount = 0;
     const samplePointsData = [];
+    const numberOfSamples = points.length;
 
     console.log('🎯 Calculating Expected Strokes for each sample point:');
     console.log('📍 Start point:', `(${start!.lat.toFixed(6)}, ${start!.lon.toFixed(6)})`);
@@ -219,7 +278,8 @@ export default function DispersionInspector({
       n: numberOfSamples,
       countsByClass,
       avgProximity,
-      avgProximityInPlay
+      avgProximityInPlay,
+      samplePoints: samplePointsData
     };
 
     // Update UI
@@ -236,13 +296,25 @@ export default function DispersionInspector({
       samplesUsed: numberOfSamples
     });
 
-    onESResult?.({
-      ...result,
-      samplePoints: samplePointsData,
-      avgProximity,
-      avgProximityInPlay
-    });
-  }, [aim, pin, start, skill, sampleCount, generateEllipsePoints, sampleClasses, onESResult]);
+    // Don't call onESResult here to avoid infinite loop
+    // onESResult will be called in a separate effect when esResult changes
+  }, [aim, pin, start, skill, sampleCount, sampleData]);
+
+  // Call onESResult when we have a new result, but use a ref to prevent infinite loops
+  const lastResultRef = useRef<typeof result | null>(null);
+  
+  useEffect(() => {
+    if (esResult && onESResult && esResult !== lastResultRef.current) {
+      lastResultRef.current = esResult;
+      onESResult(esResult);
+      console.log('📊 DispersionInspector: Sent result to parent:', {
+        meanES: esResult.mean.toFixed(3),
+        avgProximity: esResult.avgProximity?.toFixed(1),
+        avgProximityInPlay: esResult.avgProximityInPlay?.toFixed(1),
+        sampleCount: esResult.n
+      });
+    }
+  }, [esResult, onESResult]);
 
   // Reset status to 'idle' when points, skill, or sample count change to allow auto-evaluation
   useEffect(() => {
@@ -251,43 +323,37 @@ export default function DispersionInspector({
       aim: aim ? `(${aim.lat.toFixed(6)}, ${aim.lon.toFixed(6)})` : 'null', 
       pin: pin ? `(${pin.lat.toFixed(6)}, ${pin.lon.toFixed(6)})` : 'null',
       skillName: skill.name,
-      sampleCount
+      rollCondition,
+      sampleCount,
+      maskBufferExists: !!maskBuffer,
+      sampleDataAvailable: !!sampleData && sampleData.points.length > 0
     });
     
-    // Reset status to allow auto-evaluation when parameters change
+    // Reset status to allow auto-evaluation when parameters change (including mask and roll condition)
     if (start && aim && pin) {
       console.log('🔄 Resetting status to idle for auto-evaluation');
       setStatus('idle');
     }
-  }, [start, aim, pin, skill, sampleCount]);
+  }, [start, aim, pin, skill, rollCondition, sampleCount, maskBuffer, sampleData]);
 
   // Auto-evaluate when points, skill, or sample count change (debounced)
+  // Remove status and runESEvaluation from deps to prevent infinite loop
   useEffect(() => {
-    console.log('🔄 Auto-evaluation useEffect triggered:', {
-      hasStart: !!start,
-      hasAim: !!aim,
-      hasPin: !!pin,
-      hasMaskBuffer: !!maskBuffer,
-      status,
-      sampleCount,
-      skillName: skill.name,
-      canEvaluate: start && aim && pin && maskBuffer && status === 'idle'
-    });
-    
-    if (start && aim && pin && maskBuffer && status === 'idle') {
-      console.log('⏰ Starting auto-evaluation in 300ms...');
+    if (start && aim && pin && sampleData) {
       const timeoutId = setTimeout(() => {
-        console.log('🚀 Auto-evaluation timeout fired, calling runESEvaluation()');
-        runESEvaluation();
+        // Only run if we're still idle when timeout fires
+        setStatus(prevStatus => {
+          if (prevStatus === 'idle') {
+            runESEvaluation();
+          }
+          return prevStatus;
+        });
       }, 300);
       return () => {
-        console.log('⏰ Auto-evaluation timeout cleared');
         clearTimeout(timeoutId);
       };
-    } else {
-      console.log('❌ Auto-evaluation conditions not met');
     }
-  }, [start, aim, pin, skill, sampleCount, maskBuffer, runESEvaluation, status]);
+  }, [start, aim, pin, skill, rollCondition, sampleCount, sampleData]);
 
   const canEvaluate = start && aim && pin;
 
@@ -365,7 +431,7 @@ export default function DispersionInspector({
                   
                   {/* Percentage text overlay */}
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-xs font-medium text-gray-800 drop-shadow-sm">
+                    <span className="text-xs font-medium text-gray-800 dark:text-gray-200 drop-shadow-sm">
                       {condition.percentage > 0 ? `${condition.percentage}%` : condition.hasData ? '<1%' : ''}
                     </span>
                   </div>

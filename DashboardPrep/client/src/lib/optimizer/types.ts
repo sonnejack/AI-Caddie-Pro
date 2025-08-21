@@ -5,11 +5,15 @@ export type LL = { lon: number; lat: number };
 
 export type Skill = { offlineDeg: number; distPct: number }; // from existing SKILL map or adapter
 
+export type RollCondition = 'none' | 'soft' | 'medium' | 'firm' | 'concrete';
+
 export interface OptimizerInput {
   start: LL;
   pin: LL;
   maxDistanceMeters: number;        // user set; consider plays-like constraint in eval
   skill: Skill;
+  rollCondition: RollCondition;     // ground firmness affects dispersion ellipse
+  rollMultipliers: { widthMultiplier: number; depthMultiplier: number }; // pre-calculated from rollCondition
   mask: {
     width: number;
     height: number;
@@ -22,11 +26,19 @@ export interface OptimizerInput {
     meta: any;                      // include spacing, bbox, dims; whatever your GridHeightProvider needs
     data: Float32Array[];           // coarse + fine patches if used, transferable
   };
+  elevationBake?: {
+    // Baked elevation data for plays-like distance calculations
+    width: number;
+    height: number;
+    bbox: { west: number; south: number; east: number; north: number };
+    heightMeters: Float32Array;     // per-pixel elevation data, transferable
+  };
   eval: {
     // Monte Carlo settings
     nEarly: number;                 // samples per aim in early passes (e.g., 200-300)
     nFinal: number;                 // samples per aim for final re-eval (e.g., 600)
     ci95Stop: number;               // early-stop CI threshold (e.g., 0.03-0.05)
+    maxDistanceYards?: number;      // real max distance (before buffer) for plays-like constraint
   };
   constraints?: {
     // optional pruning
@@ -40,6 +52,7 @@ export interface Candidate {
   lat: number;
   es: number;          // expected strokes (mean)
   esCi95?: number;     // 95% CI if computed
+  conditionBreakdown?: Record<number, number>; // classId -> count for debugging
 }
 
 export interface OptimizerResult {
@@ -50,13 +63,13 @@ export interface OptimizerResult {
 }
 
 export interface OptimizerStrategy {
-  name: 'CEM' | 'RingGrid';
+  name: 'CEM' | 'RingGrid' | 'FullGrid';
   run(input: OptimizerInput, signal: AbortSignal): Promise<OptimizerResult>;
 }
 
 // Worker message types
 export type OptimizeMsg =
-  | { type: 'run', strategy: 'CEM'|'RingGrid', input: OptimizerInput }
+  | { type: 'run', strategy: 'CEM'|'RingGrid'|'FullGrid', input: OptimizerInput }
   | { type: 'cancel' };
 
 export type ProgressMsg = { type:'progress', pct:number, note?:string };

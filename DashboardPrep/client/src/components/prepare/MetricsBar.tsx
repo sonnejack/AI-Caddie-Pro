@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PrepareState } from '../../lib/types';
 import { ES } from '@shared/expectedStrokesAdapter';
 import { getValidatedElevations, calculatePlaysLikeDistance, subscribeToElevationUpdates } from '@/lib/pointElevation';
+import type { MaskBuffer } from '@/lib/maskBuffer';
 
 interface ESResult {
   mean: number;
@@ -20,9 +21,11 @@ interface ESResult {
 interface MetricsBarProps {
   state: PrepareState;
   esResult?: ESResult;
+  maskBuffer?: MaskBuffer;
 }
 
-export default function MetricsBar({ state, esResult }: MetricsBarProps) {
+export default function MetricsBar({ state, esResult, maskBuffer }: MetricsBarProps) {
+  
   // Force re-render when elevation data changes
   const [elevationUpdateTrigger, setElevationUpdateTrigger] = useState(0);
   
@@ -52,6 +55,7 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
       return `${yards.toFixed(1)} yds`;
     }
   };
+
 
   // Get average proximity - use new format if available, fallback to legacy
   const getAvgProximity = (esResult?: ESResult): number | null => {
@@ -171,11 +175,12 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
       pin: state.pin || undefined
     });
     
-    // Calculate plays-like distances with elevation using point elevation system
+    // Calculate plays-like distances with elevation using point elevation system (live terrain)
     const totalPlaysLike = calculatePlaysLikeDistance(totalDistance, elevations.start, elevations.pin);
     const aimPlaysLike = state.aim ? 
       calculatePlaysLikeDistance(aimDistance, elevations.start, elevations.aim) :
       { playsLike: Math.round(aimDistance), elevationChange: 0 };
+    
     
     // Use Expected Strokes from ES result if available, otherwise calculate for fairway
     const expectedStrokes = esResult?.mean || ES.calculate(aimDistance, 'fairway');
@@ -200,7 +205,7 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
       sampleCount: esResult?.n || 0,
       conditionBreakdown
     };
-  }, [state.start, state.pin, state.aim, elevationUpdateTrigger, esResult]);
+  }, [state.start, state.pin, state.aim, elevationUpdateTrigger, esResult, maskBuffer]);
 
   return (
     <Card className="mt-3">
@@ -215,7 +220,7 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
             <p className="text-xs text-gray-600">Total Distance (yds)</p>
             {/* Plays-like distance with elevation indicator */}
             {state.start && state.pin && (
-              <div className="mt-1">
+              <div className="mt-1 space-y-1">
                 <div className="flex items-center justify-center space-x-1">
                   {metrics.totalPlaysLike.elevationChange !== 0 && (
                     <span className={`text-sm font-medium ${
@@ -226,7 +231,7 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
                   )}
                   <span className="text-sm font-bold text-gray-700">{metrics.totalPlaysLike.playsLike}</span>
                 </div>
-                <p className="text-xs text-gray-600">Plays like (yds)</p>
+                <p className="text-xs text-gray-600">Plays Like</p>
               </div>
             )}
           </div>
@@ -235,7 +240,7 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
             <p className="text-xs text-gray-600">Aim Distance (yds)</p>
             {/* Plays-like distance with elevation indicator */}
             {state.start && (state.aim || state.pin) && (
-              <div className="mt-1">
+              <div className="mt-1 space-y-1">
                 <div className="flex items-center justify-center space-x-1">
                   {metrics.aimPlaysLike.elevationChange !== 0 && (
                     <span className={`text-sm font-medium ${
@@ -246,7 +251,7 @@ export default function MetricsBar({ state, esResult }: MetricsBarProps) {
                   )}
                   <span className="text-sm font-bold text-gray-700">{metrics.aimPlaysLike.playsLike}</span>
                 </div>
-                <p className="text-xs text-gray-600">Plays like (yds)</p>
+                <p className="text-xs text-gray-600">Plays Like</p>
               </div>
             )}
           </div>

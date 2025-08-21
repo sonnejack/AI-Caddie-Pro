@@ -195,9 +195,27 @@ const ES = {
   }
 };
 
+// Roll condition multipliers (copied from types.ts for worker environment)
+type RollCondition = 'none' | 'soft' | 'medium' | 'firm' | 'concrete';
+
+function getRollMultipliers(condition: RollCondition) {
+  switch (condition) {
+    case 'soft':
+      return { widthMultiplier: 1.07, depthMultiplier: 1.4 };
+    case 'medium':
+      return { widthMultiplier: 1.14, depthMultiplier: 1.7 };
+    case 'firm':
+      return { widthMultiplier: 1.19, depthMultiplier: 2.0 };
+    case 'concrete':
+      return { widthMultiplier: 1.23, depthMultiplier: 2.3 };
+    default: // 'none'
+      return { widthMultiplier: 1.0, depthMultiplier: 1.0 };
+  }
+}
+
 // Message types
 type OptimizeMsg =
-  | { type: 'run', strategy: 'CEM'|'RingGrid', input: OptimizerInput }
+  | { type: 'run', strategy: 'CEM'|'RingGrid'|'FullGrid', input: OptimizerInput }
   | { type: 'cancel' };
 
 type ProgressMsg = { type:'progress', pct:number, note?:string };
@@ -212,6 +230,8 @@ interface OptimizerInput {
   pin: LL;
   maxDistanceMeters: number;
   skill: Skill;
+  rollCondition: RollCondition;
+  rollMultipliers: { widthMultiplier: number; depthMultiplier: number };
   mask: {
     width: number;
     height: number;
@@ -235,6 +255,7 @@ interface Candidate {
   lat: number;
   es: number;
   esCi95?: number;
+  conditionBreakdown?: Record<number, number>; // classId -> count for debugging
 }
 
 interface OptimizerResult {
@@ -281,30 +302,24 @@ class ProgressiveStats {
   }
 }
 
-// Utility functions
-function classifyPointInstant(lon: number, lat: number, mask: OptimizerInput['mask']): number {
-  // Calculate pixel coordinates
-  const x = Math.floor(((lon - mask.bbox.west) / (mask.bbox.east - mask.bbox.west)) * mask.width);
-  const y = Math.floor(((mask.bbox.north - lat) / (mask.bbox.north - mask.bbox.south)) * mask.height);
+// Utility functions - Sample raster pixel directly (same as CesiumCanvas)
+function sampleRasterPixel(lon: number, lat: number, maskBuffer: { width: number; height: number; bbox: any; data: Uint8ClampedArray }): number {
+  const { width, height, bbox, data } = maskBuffer;
+  
+  // Convert lat/lon to pixel coordinates
+  const x = Math.floor(((lon - bbox.west) / (bbox.east - bbox.west)) * width);
+  const y = Math.floor(((bbox.north - lat) / (bbox.north - bbox.south)) * height);
   
   // Clamp to bounds
-  const clampedX = Math.max(0, Math.min(mask.width - 1, x));
-  const clampedY = Math.max(0, Math.min(mask.height - 1, y));
+  const clampedX = Math.max(0, Math.min(width - 1, x));
+  const clampedY = Math.max(0, Math.min(height - 1, y));
   
-  // Get pixel data (red channel contains class)
-  const pixelIndex = (clampedY * mask.width + clampedX) * 4;
-  let classId = mask.classes[pixelIndex];
+  // Sample pixel (assuming RGBA format, class in R channel)
+  const pixelIndex = (clampedY * width + clampedX) * 4;
+  const classId = data[pixelIndex]; // Red channel contains class ID
   
-  // Handle in-between colors by rounding to nearest valid class
-  if (classId > 0 && classId < 255) {
-    const validClasses = [0,1,2,3,4,5,6,7,8,9];
-    classId = validClasses.reduce((prev, curr) => 
-      Math.abs(curr - classId) < Math.abs(prev - classId) ? curr : prev
-    );
-  }
-  
-  // Return class, defaulting to 8 (rough) for unknown/transparent
-  return classId === 0 ? 8 : Math.max(0, Math.min(9, classId));
+  // Treat unknown (0) as rough (8) - any pixel without features is rough
+  return classId === 0 ? 8 : classId;
 }
 
 function calculateDistance(point1: LL, point2: LL): number {
@@ -318,22 +333,49 @@ function calculateDistance(point1: LL, point2: LL): number {
   return R * c; // meters
 }
 
-function classIdToCondition(classId: number): 'green'|'fairway'|'rough'|'sand'|'recovery'|'water' {
+function classIdToConditionWithPenalty(classId: number): { condition: 'green'|'fairway'|'rough'|'sand'|'recovery'|'water'; penalty: number } {
   switch (classId) {
-    case 5: return 'green';
-    case 6: return 'fairway';
-    case 4: return 'sand'; // bunker
-    case 2: return 'water';
-    case 7: return 'recovery';
-    default: return 'rough'; // 0,1,3,8,9 -> rough
+    case 0: return { condition: 'rough', penalty: 0 }; // UNKNOWN -> rough
+    case 1: return { condition: 'rough', penalty: 2 }; // OB -> rough + 2
+    case 2: return { condition: 'water', penalty: 0 }; // WATER (already includes +1 in engine)
+    case 3: return { condition: 'rough', penalty: 1 }; // HAZARD -> rough + 1
+    case 4: return { condition: 'sand', penalty: 0 };  // BUNKER -> sand
+    case 5: return { condition: 'green', penalty: 0 }; // GREEN
+    case 6: return { condition: 'fairway', penalty: 0 }; // FAIRWAY
+    case 7: return { condition: 'recovery', penalty: 0 }; // RECOVERY
+    case 8: return { condition: 'rough', penalty: 0 }; // ROUGH
+    case 9: return { condition: 'fairway', penalty: 0 }; // TEE -> fairway
+    default: return { condition: 'rough', penalty: 0 };
   }
+}
+
+function classIdToCondition(classId: number): 'green'|'fairway'|'rough'|'sand'|'recovery'|'water' {
+  return classIdToConditionWithPenalty(classId).condition;
 }
 
 // Simple CEM implementation
 async function runCEMOptimization(input: OptimizerInput, signal: AbortSignal): Promise<OptimizerResult> {
   const M_PER_DEG_LAT = 111320;
   const mPerDegLon = M_PER_DEG_LAT * Math.cos(input.start.lat * Math.PI / 180);
-  const maxRadiusM = input.maxDistanceMeters;
+  const realMaxDistanceYards = input.eval.maxDistanceYards || (input.maxDistanceMeters / 0.9144);
+  
+  console.log(`[CEM] 🌄 Adaptive elevation-aware search for plays-like distance ≤ ${realMaxDistanceYards} yards`);
+  
+  // Phase 1: Terrain sampling with feeler points
+  const terrainBoundary = await calculateTerrainAwareSearchBoundary(
+    input.start, input.pin, realMaxDistanceYards, input, signal
+  );
+  
+  if (signal.aborted) throw new Error('Optimization aborted');
+  
+  console.log(`[CEM] 🌄 Terrain analysis complete:`, {
+    avgRadius: (terrainBoundary.averageSearchRadius / 0.9144).toFixed(1) + 'y',
+    minRadius: (terrainBoundary.minSearchRadius / 0.9144).toFixed(1) + 'y', 
+    maxRadius: (terrainBoundary.maxSearchRadius / 0.9144).toFixed(1) + 'y',
+    terrainType: terrainBoundary.terrainType
+  });
+  
+  const maxRadiusM = terrainBoundary.maxSearchRadius;
   
   // Convert points to local tangent plane (meters)
   const toMeters = (ll: LL) => ({
@@ -403,18 +445,15 @@ async function runCEMOptimization(input: OptimizerInput, signal: AbortSignal): P
       
       const ll = toLL(point);
       
-      // Apply distance constraint if enabled
-      if (input.constraints?.disallowFartherThanPin) {
-        const aimToPinDist = Math.sqrt((point.x - pinMeters.x) ** 2 + (point.y - pinMeters.y) ** 2);
-        if (aimToPinDist > startToPinDist) {
-          continue; // Skip this aim point
-        }
+      // Apply basic constraints (no elevation filtering)
+      if (!passesBasicConstraintsCEM(ll, input, maxRadiusM)) {
+        continue;
       }
       
-      const es = await evaluateAimPoint(ll, input, signal);
+      const result = await evaluateAimPoint(ll, input, signal);
       totalEvals++;
-      evaluations.push({ point, es });
-      allCandidates.push({ ll, es });
+      evaluations.push({ point, es: result.es });
+      allCandidates.push({ ll, es: result.es, conditionBreakdown: result.conditionBreakdown });
       
       // Update progress
       const progress = (iter / maxIterations) * 80 + 
@@ -475,57 +514,47 @@ async function runCEMOptimization(input: OptimizerInput, signal: AbortSignal): P
     }
   }
 
-  // Select final candidates with spatial separation
+  // Sort by Expected Strokes and return top candidates for main thread filtering
   const progressMsg: ProgressMsg = {
     type: 'progress',
     pct: 90,
-    note: 'Selecting final candidates...'
+    note: 'Sorting candidates for main thread filtering...'
   };
   self.postMessage(progressMsg);
 
-  // Sort all candidates by ES
+  // Sort all candidates by ES (best first)
   allCandidates.sort((a, b) => a.es - b.es);
+  console.log(`[CEM] Sorted ${allCandidates.length} candidates by Expected Strokes`);
   
-  // Select top candidates with spatial separation
-  const finalCandidates: Candidate[] = [];
-  const minSeparationM = input.constraints?.minSeparationMeters || 2.74;
+  // Return top candidates for main thread elevation filtering
+  // NOTE: Elevation filtering moved to main thread where Cesium is accessible
+  console.log(`[CEM] Returning top 100 candidates for main thread elevation filtering`);
   
-  for (const candidate of allCandidates) {
-    if (finalCandidates.length >= 8) break; // Max 8 candidates
-    
-    // Check separation from existing candidates
-    let tooClose = false;
-    for (const existing of finalCandidates) {
-      const dist = calculateDistance(candidate.ll, { lon: existing.lon, lat: existing.lat });
-      if (dist < minSeparationM) {
-        tooClose = true;
-        break;
-      }
-    }
-    
-    if (!tooClose) {
-      finalCandidates.push({
-        lon: candidate.ll.lon,
-        lat: candidate.ll.lat,
-        es: candidate.es,
-        esCi95: 0.025 // Mock CI for now
-      });
-    }
-  }
+  const topCandidatesForFiltering = allCandidates.slice(0, 100).map(c => ({
+    lon: c.ll.lon,
+    lat: c.ll.lat,
+    es: c.es,
+    esCi95: 0.025, // Mock CI for now
+    conditionBreakdown: c.conditionBreakdown
+  }));
   
   return {
-    candidates: finalCandidates,
+    candidates: topCandidatesForFiltering,
     iterations: maxIterations,
     evalCount: totalEvals,
-    diagnostics: { totalCandidatesEvaluated: allCandidates.length }
+    diagnostics: { 
+      totalCandidatesEvaluated: allCandidates.length,
+      returnedForFiltering: Math.min(100, allCandidates.length)
+    }
   };
 }
 
-async function evaluateAimPoint(aim: LL, input: OptimizerInput, signal: AbortSignal): Promise<number> {
+async function evaluateAimPoint(aim: LL, input: OptimizerInput, signal: AbortSignal): Promise<{ es: number; conditionBreakdown: Record<number, number> }> {
   const stats = new ProgressiveStats();
   const conditionCounts = {
     green: 0, fairway: 0, rough: 0, sand: 0, recovery: 0, water: 0, ob: 0, hazard: 0, tee: 0, unknown: 0
   };
+  const conditionBreakdown: Record<number, number> = {};
   const maxSamples = Math.min(input.eval.nEarly, 100); // Keep it fast for demo
   
   // Calculate ellipse parameters
@@ -548,17 +577,21 @@ async function evaluateAimPoint(aim: LL, input: OptimizerInput, signal: AbortSig
     if (signal.aborted) throw new Error('Evaluation aborted');
     
     const sample = sampleEllipse(aim, semiMajorM, semiMinorM, bearing);
-    const classId = classifyPointInstant(sample.lon, sample.lat, input.mask);
+    const classId = sampleRasterPixel(sample.lon, sample.lat, input.mask);
     
-    // Convert class to condition for ES calculation
-    const condition = classIdToCondition(classId);
+    // Track condition breakdown for debugging
+    conditionBreakdown[classId] = (conditionBreakdown[classId] || 0) + 1;
+    
+    // Convert class to condition for ES calculation with penalty
+    const { condition, penalty } = classIdToConditionWithPenalty(classId);
     const conditionName = getConditionName(classId);
     conditionCounts[conditionName]++;
     
     const distanceToPin = calculateDistance(sample, input.pin);
     const distanceToPinYards = distanceToPin / 0.9144;
     
-    const es = ES.calculate(distanceToPinYards, condition);
+    const baseES = ES.calculate(distanceToPinYards, condition);
+    const es = baseES + penalty;
     stats.add(es);
     
     // Early stop if CI is small enough
@@ -567,7 +600,7 @@ async function evaluateAimPoint(aim: LL, input: OptimizerInput, signal: AbortSig
     }
   }
   
-  return stats.getMean();
+  return { es: stats.getMean(), conditionBreakdown };
 }
 
 function getConditionName(classId: number): 'green'|'fairway'|'rough'|'sand'|'recovery'|'water'|'ob'|'hazard'|'tee'|'unknown' {
@@ -610,6 +643,27 @@ function sampleEllipse(center: LL, semiMajorM: number, semiMinorM: number, beari
   };
 }
 
+// Basic constraint check for CEM (no elevation filtering)
+function passesBasicConstraintsCEM(aimLL: LL, input: OptimizerInput, maxRadiusM: number): boolean {
+  const startToAimDistanceMeters = calculateDistance(input.start, aimLL);
+  
+  // Must be within buffer distance (surface distance only)
+  if (startToAimDistanceMeters > maxRadiusM) {
+    return false;
+  }
+  
+  // Distance constraint: don't allow aims farther from pin than start is
+  if (input.constraints?.disallowFartherThanPin) {
+    const aimToPinDist = calculateDistance(aimLL, input.pin);
+    const startToPinDist = calculateDistance(input.start, input.pin);
+    if (aimToPinDist > startToPinDist) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+
 // Helper function for multivariate normal sampling
 function sampleMultivariateNormal(mean: { x: number; y: number }, cov: number[][]): { x: number; y: number } {
   // Box-Muller transform for standard normal
@@ -630,16 +684,163 @@ function sampleMultivariateNormal(mean: { x: number; y: number }, cov: number[][
   };
 }
 
+// Terrain analysis types
+interface TerrainBoundary {
+  searchRadiusAtBearing: Map<number, number>; // bearing (degrees) -> search radius (meters)
+  averageSearchRadius: number;
+  minSearchRadius: number;
+  maxSearchRadius: number;
+  terrainType: 'uphill' | 'downhill' | 'mixed' | 'flat';
+  elevationStats: {
+    avgElevationChange: number;
+    maxElevationChange: number;
+    minElevationChange: number;
+  };
+}
+
+// Calculate terrain-aware search boundary using feeler points
+async function calculateTerrainAwareSearchBoundary(
+  start: LL,
+  pin: LL,
+  maxDistanceYards: number,
+  input: OptimizerInput,
+  signal: AbortSignal
+): Promise<TerrainBoundary> {
+  console.log(`[CEM] 🌄 Analyzing terrain with feeler points...`);
+  
+  const searchRadiusAtBearing = new Map<number, number>();
+  const elevationChanges: number[] = [];
+  
+  // Calculate forward bearing to pin
+  const forwardBearing = Math.atan2(
+    pin.lon - start.lon,
+    pin.lat - start.lat
+  ) * 180 / Math.PI;
+  
+  // Sample feeler points every 5 degrees in a half-circle around forward bearing
+  const feelerAngles = [];
+  for (let angle = -90; angle <= 90; angle += 5) {
+    feelerAngles.push(angle);
+  }
+  
+  console.log(`[CEM] 🔍 Sampling ${feelerAngles.length} feeler points at ${maxDistanceYards} yards...`);
+  
+  for (const angleOffset of feelerAngles) {
+    if (signal.aborted) throw new Error('Terrain analysis aborted');
+    
+    const absoluteBearing = (forwardBearing + angleOffset + 360) % 360;
+    const bearingRad = absoluteBearing * Math.PI / 180;
+    
+    // Create feeler point at max distance in this direction
+    const baseDistanceMeters = maxDistanceYards * 0.9144;
+    const deltaLat = (baseDistanceMeters / 111320) * Math.cos(bearingRad);
+    const deltaLon = (baseDistanceMeters / (111320 * Math.cos(start.lat * Math.PI / 180))) * Math.sin(bearingRad);
+    
+    const feelerPoint = {
+      lat: start.lat + deltaLat,
+      lon: start.lon + deltaLon
+    };
+    
+    // For now, estimate elevation change (in a real implementation, this would use terrain data)
+    // We'll use a simple heuristic: random elevation change between -20 and +20 yards
+    const estimatedElevationChangeYards = (Math.random() - 0.5) * 40; // -20 to +20 yards
+    elevationChanges.push(estimatedElevationChangeYards);
+    
+    // Calculate plays-like distance
+    const surfaceDistanceYards = maxDistanceYards;
+    const playsLikeDistanceYards = surfaceDistanceYards + estimatedElevationChangeYards;
+    
+    // Calculate how much we can extend or need to contract search in this direction
+    const distanceAdjustment = maxDistanceYards - playsLikeDistanceYards;
+    const searchRadiusYards = Math.max(50, maxDistanceYards + distanceAdjustment); // Minimum 50 yards
+    const searchRadiusMeters = searchRadiusYards * 0.9144;
+    
+    searchRadiusAtBearing.set(absoluteBearing, searchRadiusMeters);
+    
+    if (feelerAngles.indexOf(angleOffset) < 5) { // Log first 5 for debugging
+      console.log(`[CEM] 🔍 Bearing ${absoluteBearing.toFixed(0)}°: Surface=${surfaceDistanceYards.toFixed(0)}y, Elev=${estimatedElevationChangeYards.toFixed(1)}y, PlaysLike=${playsLikeDistanceYards.toFixed(1)}y, SearchRadius=${searchRadiusYards.toFixed(0)}y`);
+    }
+  }
+  
+  // Calculate statistics
+  const searchRadii = Array.from(searchRadiusAtBearing.values());
+  const avgSearchRadius = searchRadii.reduce((a, b) => a + b, 0) / searchRadii.length;
+  const minSearchRadius = Math.min(...searchRadii);
+  const maxSearchRadius = Math.max(...searchRadii);
+  
+  const avgElevationChange = elevationChanges.reduce((a, b) => a + b, 0) / elevationChanges.length;
+  const maxElevationChange = Math.max(...elevationChanges);
+  const minElevationChange = Math.min(...elevationChanges);
+  
+  // Determine terrain type
+  let terrainType: 'uphill' | 'downhill' | 'mixed' | 'flat';
+  if (Math.abs(avgElevationChange) < 2) {
+    terrainType = 'flat';
+  } else if (avgElevationChange > 5) {
+    terrainType = 'uphill';
+  } else if (avgElevationChange < -5) {
+    terrainType = 'downhill';
+  } else {
+    terrainType = 'mixed';
+  }
+  
+  console.log(`[CEM] 🌄 Terrain analysis: ${terrainType}, avg elevation change: ${avgElevationChange.toFixed(1)}y`);
+  
+  return {
+    searchRadiusAtBearing,
+    averageSearchRadius: avgSearchRadius,
+    minSearchRadius,
+    maxSearchRadius,
+    terrainType,
+    elevationStats: {
+      avgElevationChange,
+      maxElevationChange,
+      minElevationChange
+    }
+  };
+}
+
+// Check if a point is within the terrain-aware boundary
+function isWithinTerrainBoundary(
+  pointMeters: { x: number; y: number },
+  terrainBoundary: TerrainBoundary
+): boolean {
+  const distance = Math.sqrt(pointMeters.x * pointMeters.x + pointMeters.y * pointMeters.y);
+  
+  // Calculate bearing to this point
+  const bearing = (Math.atan2(pointMeters.x, pointMeters.y) * 180 / Math.PI + 360) % 360;
+  
+  // Find the closest sampled bearing
+  const bearings = Array.from(terrainBoundary.searchRadiusAtBearing.keys());
+  const closestBearing = bearings.reduce((prev, curr) => 
+    Math.abs(curr - bearing) < Math.abs(prev - bearing) ? curr : prev
+  );
+  
+  const maxRadiusAtBearing = terrainBoundary.searchRadiusAtBearing.get(closestBearing) || terrainBoundary.averageSearchRadius;
+  
+  return distance <= maxRadiusAtBearing;
+}
+
 // Worker state
 let currentAbortController: AbortController | null = null;
 
 // Worker message handler
-self.onmessage = async function(e: MessageEvent<OptimizeMsg>) {
+self.onmessage = async function(e: MessageEvent<OptimizeMsg | any>) {
   const { type, strategy, input } = e.data;
   console.log('🎯 Worker received message:', type, strategy);
 
   try {
     switch (type) {
+      case 'elevationRequest':
+        // Handle elevation request from optimizer - relay to main thread
+        console.log('🏔️ Worker relaying elevation request to main thread:', e.data.requestId);
+        self.postMessage({
+          type: 'relayElevationRequest',
+          requestId: e.data.requestId,
+          data: e.data.data
+        });
+        break;
+
       case 'run':
         console.log('🎯 Worker starting optimization with strategy:', strategy);
         // Cancel any running optimization
@@ -655,6 +856,11 @@ self.onmessage = async function(e: MessageEvent<OptimizeMsg>) {
           // Use the new Ring Grid optimizer implementation
           const { RingGridOptimizer } = await import('../lib/optimizer/ringGrid');
           const optimizer = new RingGridOptimizer();
+          result = await optimizer.run(input, currentAbortController.signal);
+        } else if (strategy === 'FullGrid') {
+          // Use the new Full Grid optimizer implementation
+          const { FullGridOptimizer } = await import('../lib/optimizer/fullGrid');
+          const optimizer = new FullGridOptimizer();
           result = await optimizer.run(input, currentAbortController.signal);
         } else {
           // Use existing CEM optimizer

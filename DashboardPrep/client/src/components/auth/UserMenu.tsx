@@ -12,8 +12,6 @@ import { LoginModal } from './LoginModal'
 import { User, LogOut, Download, Upload } from 'lucide-react'
 
 export const UserMenu: React.FC = () => {
-  console.log('🔍 UserMenu rendering...')
-  
   // Use auth with error boundary
   let user, signOut, loading
   try {
@@ -21,9 +19,7 @@ export const UserMenu: React.FC = () => {
     user = auth.user
     signOut = auth.signOut
     loading = auth.loading
-    console.log('✅ UserMenu got auth context:', { user: user?.email, loading })
   } catch (error) {
-    console.error('❌ UserMenu: Auth context not available yet:', error)
     return (
       <Button variant="outline" disabled className="flex items-center gap-2">
         <User size={16} />
@@ -33,9 +29,6 @@ export const UserMenu: React.FC = () => {
   }
   
   const [showLoginModal, setShowLoginModal] = useState(false)
-  
-  // Show detailed state for debugging
-  console.log('🎯 UserMenu current state:', { user: user?.email, loading, hasUser: !!user })
 
   // Temporarily bypass loading check to test the sign-in functionality
   // if (loading) {

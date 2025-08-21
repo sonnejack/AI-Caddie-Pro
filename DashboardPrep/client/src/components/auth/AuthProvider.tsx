@@ -25,18 +25,11 @@ const AuthContext = createContext<AuthContextType | null>(null)
 
 export const useAuth = () => {
   const context = useContext(AuthContext)
-  console.log('🔍 useAuth called, context is:', context)
   
   if (!context) {
-    console.error('💥 useAuth: No AuthProvider found!')
     throw new Error('useAuth must be used within an AuthProvider')
   }
   
-  console.log('🔍 useAuth context loading:', context.loading)
-  console.log('🔍 useAuth context functions:', {
-    signIn: context.signIn.toString().slice(0, 50),
-    signUp: context.signUp.toString().slice(0, 50)
-  })
   return context
 }
 
@@ -58,7 +51,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       // Get initial session
       supabase.auth.getSession().then(({ data: { session } }) => {
-        console.log('✅ Got session:', session?.user?.email || 'No user')
         setSession(session)
         setUser(session?.user ?? null)
         setLoading(false)
@@ -69,18 +61,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       })
 
       // Listen for auth changes
-      console.log('🔥 Setting up auth state change listener...')
       const {
         data: { subscription },
       } = supabase.auth.onAuthStateChange((_event, session) => {
-        console.log('🔄 Auth state changed:', _event, session?.user?.email || 'No user')
         setSession(session)
         setUser(session?.user ?? null)
         setLoading(false)
       })
 
       return () => {
-        console.log('🧹 Cleaning up auth subscription...')
         subscription.unsubscribe()
       }
     } catch (error: any) {

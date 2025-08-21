@@ -1,6 +1,9 @@
 // pointElevation.ts
 // Simple, accurate elevation sampling for specific points (start, aim, pin)
 
+import type { MaskBuffer } from './maskBuffer';
+import { sampleBakedHeight } from './maskBuffer';
+
 declare const window: any;
 const getCesium = () => (window as any).Cesium;
 
@@ -19,6 +22,7 @@ export interface LatLon {
 let currentElevations: PointElevations = {};
 let elevationPoints: { start?: LatLon; aim?: LatLon; pin?: LatLon } = {};
 let cesiumViewer: any = null;
+let currentMaskBuffer: MaskBuffer | null = null;
 
 // Simple callback system for elevation updates
 let elevationUpdateCallbacks: (() => void)[] = [];
@@ -49,30 +53,55 @@ export function initPointElevation(viewer: any) {
 }
 
 /**
- * Sample elevation for a specific point using Cesium's most detailed terrain
+ * Set the mask buffer for baked elevation sampling
+ */
+export function setMaskBuffer(maskBuffer: MaskBuffer | null) {
+  currentMaskBuffer = maskBuffer;
+  if (maskBuffer?.elevationBake) {
+    console.log('📏 Baked elevation data available for point sampling');
+  }
+}
+
+/**
+ * Sample elevation for a specific point using baked heights when available, fallback to Cesium terrain
  */
 export async function samplePointElevation(
   point: LatLon,
   pointType: 'start' | 'aim' | 'pin'
 ): Promise<number> {
-  if (!cesiumViewer) {
-    console.warn('Cesium viewer not initialized for elevation sampling');
-    return 0;
-  }
-
   try {
     console.log(`📏 Sampling elevation for ${pointType} at (${point.lat.toFixed(6)}, ${point.lon.toFixed(6)})`);
     
-    const Cesium = getCesium();
-    const cartographic = Cesium.Cartographic.fromDegrees(point.lon, point.lat);
-    
-    // Use most detailed terrain sampling
-    const samples = await Cesium.sampleTerrainMostDetailed(
-      cesiumViewer.terrainProvider, 
-      [cartographic]
-    );
-    
-    const elevation = samples[0].height || 0;
+    let elevation = 0;
+    let source = 'none';
+
+    // Try baked height first if available
+    if (currentMaskBuffer?.elevationBake) {
+      const bakedHeight = sampleBakedHeight(point.lon, point.lat, currentMaskBuffer.elevationBake);
+      if (bakedHeight !== null) {
+        elevation = bakedHeight;
+        source = 'baked';
+        console.log(`🏔️ Using baked elevation for ${pointType}: ${elevation.toFixed(2)}m`);
+      }
+    }
+
+    // Fallback to live Cesium sampling if no baked height or outside bake area
+    if (source === 'none' && cesiumViewer) {
+      const Cesium = getCesium();
+      const cartographic = Cesium.Cartographic.fromDegrees(point.lon, point.lat);
+      
+      // Use most detailed terrain sampling
+      const samples = await Cesium.sampleTerrainMostDetailed(
+        cesiumViewer.terrainProvider, 
+        [cartographic]
+      );
+      
+      elevation = samples[0].height || 0;
+      source = 'live';
+      console.log(`🌐 Using live terrain sampling for ${pointType}: ${elevation.toFixed(2)}m`);
+    } else if (source === 'none') {
+      console.warn('No elevation source available (no baked data and no Cesium viewer)');
+    }
     
     // Store the elevation and the point it was sampled for
     currentElevations[pointType] = elevation;
@@ -81,7 +110,7 @@ export async function samplePointElevation(
     // Notify subscribers that elevation data has been updated
     notifyElevationUpdate();
     
-    console.log(`✅ ${pointType} elevation: ${elevation.toFixed(2)}m for point (${point.lat.toFixed(6)}, ${point.lon.toFixed(6)})`);
+    console.log(`✅ ${pointType} elevation: ${elevation.toFixed(2)}m (${source}) for point (${point.lat.toFixed(6)}, ${point.lon.toFixed(6)})`);
     return elevation;
   } catch (error) {
     console.warn(`❌ Failed to sample elevation for ${pointType}:`, error);
@@ -92,14 +121,24 @@ export async function samplePointElevation(
 
 /**
  * Sample elevation for optimization aim point (doesn't store in currentElevations)
+ * Uses baked heights when available for faster, more stable results
  */
 export async function sampleOptimizationElevation(point: LatLon): Promise<number> {
-  if (!cesiumViewer) {
-    console.warn('Cesium viewer not initialized for elevation sampling');
-    return 0;
-  }
-
   try {
+    // Try baked height first if available
+    if (currentMaskBuffer?.elevationBake) {
+      const bakedHeight = sampleBakedHeight(point.lon, point.lat, currentMaskBuffer.elevationBake);
+      if (bakedHeight !== null) {
+        return bakedHeight;
+      }
+    }
+
+    // Fallback to live Cesium sampling if no baked height or outside bake area
+    if (!cesiumViewer) {
+      console.warn('No elevation source available for optimization (no baked data and no Cesium viewer)');
+      return 0;
+    }
+
     const Cesium = getCesium();
     const cartographic = Cesium.Cartographic.fromDegrees(point.lon, point.lat);
     

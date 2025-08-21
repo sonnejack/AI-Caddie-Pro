@@ -16,7 +16,8 @@ import AboutTab from '../components/AboutTab';
 import { usePrepareState } from '../hooks/usePrepareState';
 import { SKILL_PRESETS } from '@shared/types';
 import { createMaskFromFeatures, applyUserPolygonsToMask } from '@/lib/maskPainter';
-import { samplePointElevation } from '@/lib/pointElevation';
+import type { MaskBuffer } from '@/lib/maskBuffer';
+import { samplePointElevation, setMaskBuffer as setElevationMaskBuffer } from '@/lib/pointElevation';
 import type { ImportResponse } from '@shared/overpass';
 import type { LatLon, ESResult } from '@shared/types';
 import { DrawingManagerContext } from '@/prepare/drawing/DrawingManagerContext';
@@ -55,6 +56,7 @@ export default function Dashboard() {
     vertexCount: 0,
     currentCondition: null
   });
+  const [currentSampleData, setCurrentSampleData] = useState<{ points: LatLon[], classes: number[], pointsLL: Float64Array } | undefined>();
   const [originalCourseBbox, setOriginalCourseBbox] = useState<{ west: number; south: number; east: number; north: number } | null>(null);
   const {
     courseId, holeId, setCourseId, setHoleId,
@@ -193,7 +195,7 @@ export default function Dashboard() {
       
       // Create legacy maskBuffer for compatibility
       setLoadingProgress({ stage: 'Preparing course data structures...', progress: 80 });
-      const maskBuffer = {
+      const maskBuffer: MaskBuffer = {
         width: maskResult.width,
         height: maskResult.height,
         bbox: maskResult.bbox,
@@ -233,6 +235,9 @@ export default function Dashboard() {
       
       // Store mask buffer for sampling
       setMaskBuffer(maskBuffer);
+      setElevationMaskBuffer(maskBuffer);
+      
+      // Elevation baking removed - now using live elevation sampling in optimizers
       
       // Store vector features for layer rendering
       setVectorFeatures(importData.features);
@@ -287,6 +292,7 @@ export default function Dashboard() {
     if (!vectorFeatures || !originalCourseBbox) return;
     
     console.log('🎨 Re-rasterizing mask with', userPolygons.length, 'user polygons...');
+    console.log('🎨 User polygons:', userPolygons.map(p => ({ id: p.id, condition: p.condition, vertices: p.positionsLL.length })));
     
     try {
       // Create new mask from original features using the ORIGINAL course bbox
@@ -294,7 +300,7 @@ export default function Dashboard() {
       const maskResult = createMaskFromFeatures(vectorFeatures, originalCourseBbox);
       
       // Create the mask buffer
-      const newMaskBuffer = {
+      const newMaskBuffer: MaskBuffer = {
         width: maskResult.width,
         height: maskResult.height,
         bbox: maskResult.bbox,
@@ -302,12 +308,17 @@ export default function Dashboard() {
       };
       
       // Apply user polygons to the mask (if any)
-      const finalMaskBuffer = userPolygons.length > 0 
+      console.log(`🎨 About to apply ${userPolygons.length} user polygons to mask`);
+      const finalMaskBuffer: MaskBuffer = userPolygons.length > 0 
         ? applyUserPolygonsToMask(newMaskBuffer, userPolygons)
         : newMaskBuffer;
+      console.log(`🎨 Final mask buffer created, dimensions: ${finalMaskBuffer.width}x${finalMaskBuffer.height}`);
+      
+      // Elevation baking removed - using live sampling in optimizers instead
       
       // Update the mask buffer state
       setMaskBuffer(finalMaskBuffer);
+      setElevationMaskBuffer(finalMaskBuffer);
       
       console.log('✅ Mask re-rasterized successfully with', userPolygons.length, 'user polygons');
       console.log('🎯 Updated mask buffer for optimizer:', {
@@ -386,6 +397,7 @@ export default function Dashboard() {
           pin={pin}
           aim={aim}
           skill={skill}
+          rollCondition={rollCondition}
           maxCarry={maxCarry}
           maskBuffer={maskBuffer}
           sampleCount={sampleCount}
@@ -419,11 +431,21 @@ export default function Dashboard() {
             if (viewer.drawingManager) {
               setDrawingManager(viewer.drawingManager);
             }
+            
           }}
           onDrawingStateChange={(state) => {
             setDrawingState(state);
           }}
           onUserPolygonsChange={setUserPolygons}
+          onSampleData={(sampleData) => {
+            // Store the sample data from CesiumCanvas for DispersionInspector to use
+            console.log('🎯 Dashboard received sample data from CesiumCanvas:', sampleData.points.length, 'points');
+            console.log('🎯 Sample data class distribution:', sampleData.classes.reduce((acc: Record<number, number>, cls: number) => {
+              acc[cls] = (acc[cls] || 0) + 1;
+              return acc;
+            }, {}));
+            setCurrentSampleData(sampleData);
+          }}
           onESWorkerCall={async (params) => {
             // Create worker and call it with the params
             try {
@@ -454,7 +476,7 @@ export default function Dashboard() {
             }
           }}
         />
-        <MetricsBar state={state} esResult={esResult} />
+        <MetricsBar state={state} esResult={esResult} maskBuffer={maskBuffer} />
       </div>
 
       {/* Mobile: Controls last, Desktop: Right Sidebar */}
@@ -471,9 +493,11 @@ export default function Dashboard() {
           aim={aim}
           pin={pin}
           skill={skill}
+          rollCondition={rollCondition}
           mask={mask}
           maskBuffer={maskBuffer}
           sampleCount={sampleCount}
+          sampleData={currentSampleData}
           onESResult={(result) => {
             setEs(result);
             // Cast the result to include typed arrays for CesiumCanvas

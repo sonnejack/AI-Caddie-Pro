@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import type { LatLon, SkillPreset } from '@/lib/types';
+import type { LatLon, SkillPreset, RollCondition } from '@/lib/types';
+import { getRollMultipliers } from '@/lib/types';
 import type { MaskBuffer } from '@/lib/maskBuffer';
 import type { OptimizerInput, Candidate, ProgressMsg, DoneMsg, ErrorMsg, OptimizeMsg } from '@/lib/optimizer/types';
 import { initCandidateLayer, setCandidates as setCandidatePoints, clearCandidates, onCandidateClick } from './CandidateLayer';
@@ -18,6 +19,7 @@ interface OptimizerPanelProps {
   pin?: LatLon;
   aim?: LatLon;
   skill: SkillPreset;
+  rollCondition: RollCondition;
   maxCarry: number;
   maskBuffer?: MaskBuffer;
   heightGrid?: any; // Height grid data - only used for advanced short game analysis (not implemented yet)
@@ -33,6 +35,7 @@ export default function OptimizerPanel({
   pin, 
   aim,
   skill, 
+  rollCondition,
   maxCarry, 
   maskBuffer,
   heightGrid,
@@ -41,7 +44,7 @@ export default function OptimizerPanel({
   onAimSet,
   onOptimizationComplete
 }: OptimizerPanelProps) {
-  const [strategy, setStrategy] = useState<'CEM' | 'RingGrid'>('RingGrid');
+  const [strategy, setStrategy] = useState<'CEM' | 'RingGrid' | 'FullGrid'>('RingGrid');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressNote, setProgressNote] = useState<string>('');
@@ -80,6 +83,84 @@ export default function OptimizerPanel({
     setMaxDistance(maxCarry);
   }, [maxCarry]);
 
+  // Filter candidates by plays-like distance using live elevation data
+  const filterCandidatesByElevation = useCallback(async (candidates: Candidate[]): Promise<Candidate[]> => {
+    console.log(`🏔️ Filtering ${candidates.length} candidates by plays-like distance ≤ ${maxDistance} yards`);
+    
+    if (!start) {
+      console.warn('🏔️ No start position for elevation filtering');
+      return candidates.slice(0, 8); // Return top 8 without filtering
+    }
+
+    const { samplePointElevation } = await import('@/lib/pointElevation');
+    const validCandidates: Candidate[] = [];
+
+    for (let i = 0; i < candidates.length; i++) {
+      const candidate = candidates[i];
+      const candidatePoint = { lon: candidate.lon, lat: candidate.lat };
+
+      try {
+        // Calculate surface distance
+        const surfaceDistanceMeters = calculateDistance(start, candidatePoint);
+        const surfaceDistanceYards = surfaceDistanceMeters / 0.9144;
+
+        // Sample elevations
+        const startElevation = await samplePointElevation(start, 'filter-start');
+        const aimElevation = await samplePointElevation(candidatePoint, 'filter-aim');
+
+        let playsLikeYards = surfaceDistanceYards;
+        let elevationChange = 0;
+
+        // Calculate plays-like distance if elevation data available
+        if (typeof startElevation === 'number' && typeof aimElevation === 'number') {
+          const elevationChangeMeters = aimElevation - startElevation;
+          elevationChange = elevationChangeMeters * 1.09361; // Convert to yards
+          playsLikeYards = surfaceDistanceYards + elevationChange;
+        }
+
+        const isValid = playsLikeYards <= maxDistance;
+
+        // Log results for top 10 or valid candidates
+        if (i < 10 || isValid) {
+          console.log(`🏔️ #${(i+1).toString().padStart(3, ' ')}: ES=${candidate.es.toFixed(3)}, Surface=${surfaceDistanceYards.toFixed(1)}y, PlaysLike=${playsLikeYards.toFixed(1)}y, ElevΔ=${elevationChange.toFixed(1)}y, Valid=${isValid ? '✅' : '❌'}`);
+        }
+
+        if (isValid) {
+          validCandidates.push(candidate);
+          
+          // Stop once we have 8 valid candidates
+          if (validCandidates.length >= 8) {
+            console.log('🏔️ Found 8 valid candidates, stopping elevation filtering');
+            break;
+          }
+        }
+
+      } catch (error) {
+        console.warn('🏔️ Elevation sampling failed for candidate:', error);
+        // If elevation sampling fails, assume valid based on surface distance
+        const surfaceDistanceMeters = calculateDistance(start, candidatePoint);
+        const surfaceDistanceYards = surfaceDistanceMeters / 0.9144;
+        
+        if (surfaceDistanceYards <= maxDistance && validCandidates.length < 8) {
+          validCandidates.push(candidate);
+        }
+      }
+    }
+
+    console.log(`🏔️ Elevation filtering complete: ${validCandidates.length} valid candidates from ${candidates.length} total`);
+    return validCandidates;
+  }, [start, maxDistance]);
+
+  // Helper function to calculate distance between two points
+  const calculateDistance = (p1: { lat: number; lon: number }, p2: { lat: number; lon: number }): number => {
+    const R = 6371000; // Earth radius in meters
+    const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+    const dLon = (p2.lon - p1.lon) * Math.PI / 180;
+    const a = Math.sin(dLat/2) ** 2 + Math.cos(p1.lat * Math.PI/180) * Math.cos(p2.lat * Math.PI/180) * Math.sin(dLon/2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // meters
+  };
+
   const handleRunOptimizer = useCallback(async () => {
     console.log('🎯 Optimize button clicked');
     console.log('🎯 canOptimize:', canOptimize);
@@ -110,14 +191,17 @@ export default function OptimizerPanel({
       });
       
       // Create optimizer input
+      const rollMultipliers = getRollMultipliers(rollCondition);
       const optimizerInput: OptimizerInput = {
         start: start!,
         pin: pin!,
-        maxDistanceMeters: maxDistance * 0.9144, // Convert yards to meters
+        maxDistanceMeters: (maxDistance + 30) * 0.9144, // Add 30-yard buffer and convert yards to meters
         skill: {
           offlineDeg: skill.offlineDeg,
           distPct: skill.distPct
         },
+        rollCondition: rollCondition,
+        rollMultipliers: rollMultipliers,
         mask: {
           width: maskBuffer!.width,
           height: maskBuffer!.height,
@@ -127,10 +211,18 @@ export default function OptimizerPanel({
         // heightGrid: Only used for advanced short game analysis (not implemented yet)
         // For normal optimization, we don't use elevation data
         heightGrid: undefined,
+        // Pass elevation bake data for plays-like distance calculations
+        elevationBake: maskBuffer!.elevationBake ? {
+          width: maskBuffer!.elevationBake.width,
+          height: maskBuffer!.elevationBake.height,
+          bbox: maskBuffer!.elevationBake.bbox,
+          heightMeters: maskBuffer!.elevationBake.heightMeters
+        } : undefined,
         eval: {
           nEarly,
           nFinal,
-          ci95Stop
+          ci95Stop,
+          maxDistanceYards: maxDistance // Pass the real max distance for plays-like constraint checking
         },
         constraints: {
           disallowFartherThanPin: true,
@@ -147,9 +239,8 @@ export default function OptimizerPanel({
       console.log('🎯 Worker created:', workerRef.current);
 
       // Set up message handlers
-      workerRef.current.onmessage = (e: MessageEvent<ProgressMsg | DoneMsg | ErrorMsg>) => {
+      workerRef.current.onmessage = async (e: MessageEvent<ProgressMsg | DoneMsg | ErrorMsg | any>) => {
         const message = e.data;
-        console.log('🎯 Received message from worker:', message);
         
         switch (message.type) {
           case 'progress':
@@ -158,23 +249,36 @@ export default function OptimizerPanel({
             break;
             
           case 'done':
-            setProgress(100);
-            setProgressNote('Optimization complete');
-            setIsOptimizing(false);
+            setProgress(90);
+            setProgressNote('Filtering by elevation...');
             
-            const resultCandidates = message.result.candidates;
-            console.log('🎯 Optimization completed with candidates:', resultCandidates);
-            console.log('🎯 Viewer reference for candidates:', !!viewer);
+            const rawCandidates = message.result.candidates;
+            console.log('🎯 Worker completed, got candidates for elevation filtering:', rawCandidates.length);
             
-            setCandidates(resultCandidates);
-            setCandidatePoints(resultCandidates);
-            onOptimizationComplete?.(resultCandidates);
-            
-            // Auto-set the best candidate as aim
-            if (resultCandidates.length > 0) {
-              const bestCandidate = resultCandidates[0];
-              onAimSet?.({ lon: bestCandidate.lon, lat: bestCandidate.lat });
-            }
+            // Apply elevation filtering on main thread (where Cesium is available)
+            filterCandidatesByElevation(rawCandidates)
+              .then(filteredCandidates => {
+                setProgress(100);
+                setProgressNote('Optimization complete');
+                setIsOptimizing(false);
+                
+                console.log('🎯 Final candidates after elevation filtering:', filteredCandidates);
+                
+                setCandidates(filteredCandidates);
+                setCandidatePoints(filteredCandidates);
+                onOptimizationComplete?.(filteredCandidates);
+                
+                // Auto-set the best candidate as aim
+                if (filteredCandidates.length > 0) {
+                  const bestCandidate = filteredCandidates[0];
+                  onAimSet?.({ lon: bestCandidate.lon, lat: bestCandidate.lat });
+                }
+              })
+              .catch(error => {
+                console.error('🏔️ Elevation filtering failed:', error);
+                setError('Elevation filtering failed');
+                setIsOptimizing(false);
+              });
             break;
             
           case 'error':
@@ -183,6 +287,7 @@ export default function OptimizerPanel({
             setProgress(0);
             setProgressNote('');
             break;
+
         }
       };
 
@@ -248,6 +353,22 @@ export default function OptimizerPanel({
     return diff > 0 ? `+${diff.toFixed(3)}` : diff.toFixed(3);
   };
 
+  const getClassIdName = (classId: number): string => {
+    switch (classId) {
+      case 0: return 'Unknown';
+      case 1: return 'OB';
+      case 2: return 'Water';
+      case 3: return 'Hazard';
+      case 4: return 'Bunker';
+      case 5: return 'Green';
+      case 6: return 'Fairway';
+      case 7: return 'Recovery';
+      case 8: return 'Rough';
+      case 9: return 'Tee';
+      default: return `Class-${classId}`;
+    }
+  };
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -267,13 +388,14 @@ export default function OptimizerPanel({
               {/* Strategy Selection */}
               <div className="space-y-2">
                 <Label htmlFor="strategy">Optimization Strategy</Label>
-                <Select value={strategy} onValueChange={(value: 'CEM' | 'RingGrid') => setStrategy(value)}>
+                <Select value={strategy} onValueChange={(value: 'CEM' | 'RingGrid' | 'FullGrid') => setStrategy(value)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select strategy" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="CEM">CEM (Cross-Entropy Method)</SelectItem>
                     <SelectItem value="RingGrid">Ring Grid (Forward Half-Disc)</SelectItem>
+                    <SelectItem value="FullGrid">Full Grid (Exhaustive Search)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -426,6 +548,23 @@ export default function OptimizerPanel({
                   }`}>
                     <p>ES: <span className="font-medium">{formatES(candidate.es, candidate.esCi95)}</span></p>
                     <p>Position: <span className="font-mono text-xs">{candidate.lat.toFixed(6)}, {candidate.lon.toFixed(6)}</span></p>
+                    {index === 0 && candidate.conditionBreakdown && (
+                      <div className="mt-2 p-2 bg-black/5 dark:bg-white/5 rounded text-xs">
+                        <p className="font-medium mb-1">🔍 Debug: Landing Conditions</p>
+                        {Object.entries(candidate.conditionBreakdown)
+                          .sort(([,a], [,b]) => b - a)
+                          .slice(0, 5)
+                          .map(([classId, count]) => {
+                            const className = getClassIdName(Number(classId));
+                            const percent = Math.round((count / Object.values(candidate.conditionBreakdown!).reduce((a,b) => a+b, 0)) * 100);
+                            return (
+                              <span key={classId} className="mr-2">
+                                {className}: {count} ({percent}%)
+                              </span>
+                            );
+                          })}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

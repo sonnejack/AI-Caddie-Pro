@@ -158,8 +158,11 @@ export function applyUserPolygonsToMask(
   baseMask: MaskBuffer,
   userPolys: UserPolygon[]
 ): MaskBuffer {
+  console.log(`🎨 applyUserPolygonsToMask called with ${userPolys.length} polygons`);
+  
   // If no user polygons, return the base mask unchanged
   if (userPolys.length === 0) {
+    console.log(`🎨 No user polygons, returning base mask unchanged`);
     return baseMask;
   }
 
@@ -195,6 +198,8 @@ export function applyUserPolygonsToMask(
   // Rasterize each user polygon
   for (const polygon of userPolys) {
     const classId = CONDITION_CLASS[polygon.condition];
+    console.log(`🎨 Processing polygon: condition=${polygon.condition}, classId=${classId}, positions=${polygon.positionsLL.length}`);
+    
     if (classId === undefined) {
       console.warn(`Unknown condition type: ${polygon.condition}`);
       continue;
@@ -228,6 +233,7 @@ export function applyUserPolygonsToMask(
     const pixelData = imageData.data;
 
     // Apply the polygon's class to covered pixels
+    let pixelsUpdated = 0;
     for (let i = 0; i < pixelData.length; i += 4) {
       const alpha = pixelData[i + 3]; // Alpha channel
       if (alpha > 0) {
@@ -240,9 +246,21 @@ export function applyUserPolygonsToMask(
         newData[maskDataIndex + 1] = 0;       // Green: 0
         newData[maskDataIndex + 2] = 0;       // Blue: 0  
         newData[maskDataIndex + 3] = 255;     // Alpha: fully opaque
+        pixelsUpdated++;
       }
     }
+    console.log(`🎨 Updated ${pixelsUpdated} pixels for ${polygon.condition} polygon`);
   }
+  
+  console.log(`🎨 applyUserPolygonsToMask complete, returning updated mask`);
+  
+  // Log a histogram of the updated mask to verify classes
+  const classCounts = new Map<number, number>();
+  for (let i = 0; i < newData.length; i += 4) {
+    const classId = newData[i];
+    classCounts.set(classId, (classCounts.get(classId) || 0) + 1);
+  }
+  console.log(`🎨 Updated mask class distribution:`, Array.from(classCounts.entries()).map(([k,v]) => `Class ${k}: ${v}`));
 
   // Return new mask buffer with updated data
   return {
