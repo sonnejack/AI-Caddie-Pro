@@ -442,8 +442,11 @@ export class FullGridOptimizer implements OptimizerStrategy {
       const elevationChangeMeters = elevationData.aimElevation - elevationData.startElevation;
       const elevationChangeYards = elevationChangeMeters * 1.09361; // meters to yards
       
-      // Apply elevation adjustment: uphill adds distance, downhill subtracts
-      const playsLikeYards = surfaceDistanceYards + elevationChangeYards;
+      // Apply elevation adjustment with different factors for up/downhill
+      // Uphill (positive elevation): k = 1.105 (shots play slightly longer than straight addition)
+      // Downhill (negative elevation): k = 0.90 (shots play slightly less than straight subtraction)
+      const elevationFactor = elevationChangeYards > 0 ? 1.105 : 0.90;
+      const playsLikeYards = surfaceDistanceYards + (elevationChangeYards * elevationFactor);
       
       console.log(`[FullGrid] Elevation: Start=${elevationData.startElevation.toFixed(1)}m, Aim=${elevationData.aimElevation.toFixed(1)}m, Change=${elevationChangeYards.toFixed(1)}y, PlaysLike=${playsLikeYards.toFixed(1)}y vs Surface=${surfaceDistanceYards.toFixed(1)}y`);
       

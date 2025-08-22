@@ -214,10 +214,10 @@ export function calculatePlaysLikeDistance(
   const elevationChangeM = endElevation - startElevation;
   const elevationChangeYds = elevationChangeM * 1.09361;
   
-  // Apply elevation adjustment to distance
-  // Simple rule: uphill adds distance, downhill subtracts distance
-  // Use a factor to convert elevation change to distance adjustment
-  const elevationFactor = 1.0; // 1 yard of elevation = 1 yard of distance adjustment
+  // Apply elevation adjustment to distance with different factors for up/downhill
+  // Uphill (positive elevation): k = 1.105 (shots play slightly longer than straight addition)
+  // Downhill (negative elevation): k = 0.90 (shots play slightly less than straight subtraction)
+  const elevationFactor = elevationChangeYds > 0 ? 1.105 : 0.90;
   const playsLikeDistance = actualDistance + (elevationChangeYds * elevationFactor);
   
   return {
