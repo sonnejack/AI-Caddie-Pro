@@ -299,18 +299,21 @@ export class FullGridOptimizer implements OptimizerStrategy {
 
 
   /**
-   * Convert class ID to condition for ES calculation
+   * Convert class ID to condition for ES calculation (same logic as Ring Grid)
    */
   private classToCondition(classId: number): { condition: 'green'|'fairway'|'rough'|'sand'|'recovery'|'water'; penalty: number } {
     switch (classId) {
-      case 5: return { condition: 'green', penalty: 0 };
-      case 6: return { condition: 'fairway', penalty: 0 };
-      case 4: return { condition: 'sand', penalty: 0 }; // bunker
-      case 2: return { condition: 'water', penalty: 0 };
-      case 7: return { condition: 'recovery', penalty: 0 };
-      case 1: return { condition: 'rough', penalty: 2 }; // OB
-      case 3: return { condition: 'rough', penalty: 1 }; // hazard
-      default: return { condition: 'rough', penalty: 0 }; // 0,8,9 -> rough
+      case 0: return { condition: 'rough', penalty: 0 }; // UNKNOWN -> rough
+      case 1: return { condition: 'rough', penalty: 2 }; // OB -> rough + 2
+      case 2: return { condition: 'water', penalty: 0 }; // WATER (already includes +1 in engine)
+      case 3: return { condition: 'rough', penalty: 1 }; // HAZARD -> rough + 1
+      case 4: return { condition: 'sand', penalty: 0 };  // BUNKER -> sand
+      case 5: return { condition: 'green', penalty: 0 }; // GREEN
+      case 6: return { condition: 'fairway', penalty: 0 }; // FAIRWAY
+      case 7: return { condition: 'recovery', penalty: 0 }; // RECOVERY
+      case 8: return { condition: 'rough', penalty: 0 }; // ROUGH
+      case 9: return { condition: 'fairway', penalty: 0 }; // TEE -> fairway
+      default: return { condition: 'rough', penalty: 0 };
     }
   }
 

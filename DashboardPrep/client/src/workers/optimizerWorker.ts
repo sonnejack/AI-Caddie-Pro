@@ -577,7 +577,15 @@ async function evaluateAimPoint(aim: LL, input: OptimizerInput, signal: AbortSig
     if (signal.aborted) throw new Error('Evaluation aborted');
     
     const sample = sampleEllipse(aim, semiMajorM, semiMinorM, bearing);
-    const classId = sampleRasterPixel(sample.lon, sample.lat, input.mask);
+    // Create mock mask buffer for classification
+    const mockMaskBuffer = {
+      width: input.mask.width,
+      height: input.mask.height,
+      bbox: input.mask.bbox,
+      data: input.mask.classes
+    };
+    
+    const classId = sampleRasterPixel(sample.lon, sample.lat, mockMaskBuffer);
     
     // Track condition breakdown for debugging
     conditionBreakdown[classId] = (conditionBreakdown[classId] || 0) + 1;
@@ -643,7 +651,7 @@ function sampleEllipse(center: LL, semiMajorM: number, semiMinorM: number, beari
   };
 }
 
-// Basic constraint check for CEM (no elevation filtering)
+// Basic constraint check for CEM (same logic as Full Grid - no elevation filtering)
 function passesBasicConstraintsCEM(aimLL: LL, input: OptimizerInput, maxRadiusM: number): boolean {
   const startToAimDistanceMeters = calculateDistance(input.start, aimLL);
   
@@ -652,7 +660,7 @@ function passesBasicConstraintsCEM(aimLL: LL, input: OptimizerInput, maxRadiusM:
     return false;
   }
   
-  // Distance constraint: don't allow aims farther from pin than start is
+  // Distance constraint: don't allow aims farther from pin than start is (optional constraint)
   if (input.constraints?.disallowFartherThanPin) {
     const aimToPinDist = calculateDistance(aimLL, input.pin);
     const startToPinDist = calculateDistance(input.start, input.pin);
