@@ -514,15 +514,15 @@ export default function Dashboard() {
       {/* Header with Tabs */}
       <header className="bg-card border-b border-border sticky top-0 z-50">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-12">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-8">
-              <div className="flex items-center space-x-2">
-                <i className="fas fa-golf-ball text-primary text-xl"></i>
-                <h1 className="text-xl font-bold text-foreground">Golf Analytics Pro</h1>
-              </div>
-              
-              {/* Tabs in Header */}
-              <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
+          <div className="flex items-center h-16">
+            <div className="flex items-center space-x-2">
+              <i className="fas fa-golf-ball text-primary text-xl"></i>
+              <h1 className="text-xl font-bold text-foreground">Golf Analytics Pro</h1>
+            </div>
+            
+            {/* Tabs in Header - Centered */}
+            <div className="flex-1 flex justify-center">
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className="grid grid-cols-6 bg-transparent h-auto p-0">
                   <TabsTrigger 
                     value="prepare" 
