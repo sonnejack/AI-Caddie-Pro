@@ -23,7 +23,6 @@ import { showHolePolyline, hideHolePolyline } from './HolePolylineLayer';
 import { showVectorFeatures, clearVectorFeatures } from './VectorFeatureLayers';
 import { generateEllipseSamples, generateMixedEllipseSamples } from '@/lib/sampling';
 import { 
-  bearingDeg, 
   offsetLL, 
   midpointAlong, 
   holeLengthMeters, 
@@ -34,6 +33,7 @@ import {
   assignEndpoints
 } from '@/lib/holeGeom';
 import { flyShotPOVView } from './cameraViews';
+import { bearingDeg } from '@/lib/holeGeom';
 
 interface ESResult {
   mean: number;
@@ -230,9 +230,6 @@ function CesiumCanvas({
   type LL = { lon: number; lat: number };
   
   function groundHeightFast(lon: number, lat: number): number {
-    // If a baked GridHeightProvider is active, use it here:
-    // const h = heightProvider?.getHeightSync({lon,lat});
-    // if (Number.isFinite(h)) return h!;
     if (!viewerRef.current) return 0;
     const h = viewerRef.current.scene.globe.getHeight(
       (window as any).Cesium.Cartographic.fromDegrees(lon, lat)
@@ -263,8 +260,78 @@ function CesiumCanvas({
       duration
     });
   }
+  
+  // Calculate overview height to ensure tee and green are both visible with buffer
+  function calculateOverviewHeight(holePolylineLL: LL[], teeLL: LL, greenLL: LL): { centerLL: LL; height: number } {
+    if (!viewerRef.current) return { centerLL: teeLL, height: 300 };
+    
+    const scene = viewerRef.current.scene;
+    const canvas = scene.canvas;
+    const aspect = canvas.width / canvas.height;
+    const camera = viewerRef.current.camera;
+    const fovy = camera.frustum.fovy;
+    
+    // Calculate bounding box of the hole
+    let minLat = Math.min(teeLL.lat, greenLL.lat);
+    let maxLat = Math.max(teeLL.lat, greenLL.lat);
+    let minLon = Math.min(teeLL.lon, greenLL.lon);
+    let maxLon = Math.max(teeLL.lon, greenLL.lon);
+    
+    // Expand to include all polyline points
+    for (const point of holePolylineLL) {
+      minLat = Math.min(minLat, point.lat);
+      maxLat = Math.max(maxLat, point.lat);
+      minLon = Math.min(minLon, point.lon);
+      maxLon = Math.max(maxLon, point.lon);
+    }
+    
+    // Add buffer (10% of span)
+    const latSpan = maxLat - minLat;
+    const lonSpan = maxLon - minLon;
+    const buffer = 0.1;
+    
+    minLat -= latSpan * buffer;
+    maxLat += latSpan * buffer;
+    minLon -= lonSpan * buffer;
+    maxLon += lonSpan * buffer;
+    
+    // Calculate center
+    const centerLL = {
+      lat: (minLat + maxLat) / 2,
+      lon: (minLon + maxLon) / 2
+    };
+    
+    // Convert to meters for height calculation
+    const R = 6371000;
+    const latSpanM = (maxLat - minLat) * Math.PI / 180 * R;
+    const lonSpanM = (maxLon - minLon) * Math.PI / 180 * R * Math.cos(centerLL.lat * Math.PI / 180);
+    
+    // Calculate height needed to fit both dimensions
+    const heightForLat = latSpanM / (2 * Math.tan(fovy / 2));
+    const fovx = 2 * Math.atan(Math.tan(fovy / 2) * aspect);
+    const heightForLon = lonSpanM / (2 * Math.tan(fovx / 2));
+    
+    const height = Math.max(heightForLat, heightForLon, 200); // Minimum 200m
+    
+    return { centerLL, height };
+  }
 
-  // Exported camera view functions
+  // Fixed camera view functions
+  const flyOverview = useCallback((holePolylineLL: LL[], teeLL: LL, greenLL: LL) => {
+    if (!viewerRef.current || !holePolylineLL.length) return;
+    
+    const { centerLL, height } = calculateOverviewHeight(holePolylineLL, teeLL, greenLL);
+    const terrainHeight = groundHeightFast(centerLL.lon, centerLL.lat);
+    const hdg = bearingDeg(teeLL.lon, teeLL.lat, greenLL.lon, greenLL.lat);
+    
+    flyToLLH(
+      { ...centerLL, hMeters: terrainHeight + height }, 
+      hdg, 
+      -89.5, // Nearly straight down 
+      0.35
+    );
+  }, [viewerRef.current]);
+  
   const flyTeeView = useCallback((hole: any) => {
     if (!viewerRef.current || !hole.polyline) return;
     
@@ -276,9 +343,10 @@ function CesiumCanvas({
     const hdg = bearingDeg(tee.lon, tee.lat, green.lon, green.lat);
     const L = holeLengthMeters(hole.polyline.positions);
 
-    const back = Math.min(60, Math.max(15, 0.06 * L));
+    // Increased offset behind tee - was 0.06 * L, now 0.12 * L with higher minimum
+    const back = Math.min(100, Math.max(30, 0.12 * L));
     const camLL = offsetLL(tee.lon, tee.lat, back, (hdg + 180) % 360);
-    const h = Math.min(90, Math.max(25, 0.12 * L)) + groundHeightFast(camLL.lon, camLL.lat);
+    const h = Math.min(120, Math.max(40, 0.15 * L)) + groundHeightFast(camLL.lon, camLL.lat);
 
     flyToLLH({ ...camLL, hMeters: h }, hdg, -20, 0.35);
   }, [viewerRef.current]);
@@ -294,8 +362,13 @@ function CesiumCanvas({
     const hdg = bearingDeg(mid.lon, mid.lat, green.lon, green.lat);
     const L = holeLengthMeters(hole.polyline.positions);
 
-    const h = Math.min(70, Math.max(20, 0.08 * L)) + groundHeightFast(mid.lon, mid.lat);
-    flyToLLH({ lon: mid.lon, lat: mid.lat, hMeters: h }, hdg, -15, 0.35);
+    // Position camera further back from midpoint for better fairway perspective
+    const back = Math.min(80, Math.max(25, 0.08 * L));
+    const camLL = offsetLL(mid.lon, mid.lat, back, (hdg + 180) % 360);
+    
+    // Increased height for better fairway overview
+    const h = Math.min(100, Math.max(35, 0.12 * L)) + groundHeightFast(camLL.lon, camLL.lat);
+    flyToLLH({ ...camLL, hMeters: h }, hdg, -25, 0.35);
   }, [viewerRef.current]);
 
   const flyGreenView = useCallback((hole: any, pinGreen?: any) => {
@@ -310,7 +383,8 @@ function CesiumCanvas({
 
     const hdg = bearingDeg(tee.lon, tee.lat, green.lon, green.lat); // tee->green so front (green->tee) is bottom
     const r = greenRadiusMeters(targetGreen);
-    const h = Math.min(80, Math.max(30, 3 * r)) + groundHeightFast(green.lon, green.lat);
+    // Increased height for better green view
+    const h = Math.min(120, Math.max(50, 4 * r)) + groundHeightFast(green.lon, green.lat);
 
     flyToLLH({ lon: green.lon, lat: green.lat, hMeters: h }, hdg, -89.5, 0.35);
   }, [viewerRef.current]);
@@ -321,7 +395,7 @@ function CesiumCanvas({
     await flyShotPOVView(viewerRef.current, startLL, aimLL);
   }, [viewerRef.current]);
 
-  // Handle camera preset buttons using HoleNavigator logic
+  // Handle camera preset buttons
   const handleCameraPreset = (preset: string) => {
     if (!viewerRef.current || !holePolylinesByRef || !holeFeatures || !currentHole) {
       console.warn('Missing data for camera preset:', { 
@@ -341,15 +415,24 @@ function CesiumCanvas({
 
     try {
       const polylineData = holePolylinesByRef.get(holeRef);
+      const holePolylineLL: LL[] = polylineData.positions;
+
+      // Assign endpoints to get consistent tee and green locations
       const holePolyline = {
         holeId: holeRef,
         positions: polylineData.positions,
         ref: holeRef
       };
-
-      // Assign endpoints to get green centroid
       const endpoints = assignEndpoints(holePolyline, holeFeatures.tees, holeFeatures.greens);
       
+      const teeLL = endpoints.teeLL;
+      const greenLL = endpoints.greenLL;
+      
+      if (!teeLL || !greenLL) {
+        console.warn('Missing tee or green endpoints for camera preset');
+        return;
+      }
+
       const hole = {
         polyline: holePolyline,
         teeLL: endpoints.teeLL,
@@ -360,8 +443,7 @@ function CesiumCanvas({
 
       switch (preset) {
         case 'overview':
-          // Overview shows the entire hole - use fairway view
-          flyFairwayView(hole);
+          flyOverview(holePolylineLL, endpoints.teeLL, endpoints.greenLL);
           break;
         case 'tee':
           flyTeeView(hole);
