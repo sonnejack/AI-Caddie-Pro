@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { PrepareState, LatLon, getRollMultipliers } from '../../lib/types';
+import { useGPSController } from '@/hooks/useGPSController';
+import { useToast } from '@/hooks/use-toast';
 import { colorizeMaskToCanvas, edgesMaskToCanvas, showRasterLayer, hideRasterLayer } from '@/lib/rasterOverlay';
 import { initPointElevation, samplePointElevation, clearElevations } from '@/lib/pointElevation';
 import type { MaskBuffer } from '@/lib/maskBuffer';
@@ -70,6 +72,8 @@ interface CesiumCanvasProps {
   // Drawing props
   onUserPolygonsChange?: (polygons: UserPolygon[]) => void;
   onDrawingStateChange?: (state: DrawingManagerState) => void;
+  // GPS state callback
+  onGPSStateChange?: (isActive: boolean) => void;
 }
 
 // Helper function to calculate distance in yards
@@ -139,7 +143,8 @@ function CesiumCanvas({
   pinLocation,
   onUserPolygonsChange,
   onDrawingStateChange,
-  onSampleData
+  onSampleData,
+  onGPSStateChange
 }: CesiumCanvasProps) {
   const viewerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -166,6 +171,54 @@ function CesiumCanvas({
     isDrawing: false,
     vertices: 0,
     condition: undefined
+  });
+
+  // Toast notifications
+  const { toast } = useToast();
+
+  // GPS controller for start point tracking
+  const {
+    isGPSActive,
+    isGPSSupported,
+    toggleGPS
+  } = useGPSController({
+    onLocationUpdate: useCallback((location: LatLon) => {
+      console.log('🌍 GPS location received for Start point:', location);
+      
+      if (state.selectionMode === 'start') {
+        // Don't update during manual selection mode - GPS and manual are mutually exclusive
+        return;
+      }
+      
+      // Update Start point via the existing onPointSet flow
+      onPointSet('start', location);
+    }, [onPointSet, state.selectionMode]),
+    onError: useCallback((error: string) => {
+      console.error('GPS error:', error);
+      toast({
+        title: "GPS Error",
+        description: error,
+        variant: "destructive",
+      });
+    }, [toast]),
+    onGPSEnabled: useCallback(() => {
+      toast({
+        title: "GPS Enabled",
+        description: "Now tracking your location for start position",
+        variant: "default",
+      });
+      onGPSStateChange?.(true);
+    }, [toast, onGPSStateChange]),
+    onGPSDisabled: useCallback(() => {
+      toast({
+        title: "GPS Disabled", 
+        description: "Manual start point placement is now enabled",
+        variant: "default",
+      });
+      onGPSStateChange?.(false);
+    }, [toast, onGPSStateChange]),
+    distanceThresholdMeters: 3.0,
+    throttleIntervalMs: 1000
   });
 
 
@@ -535,12 +588,14 @@ function CesiumCanvas({
     // Calculate ellipse parameters
     const distance = calculateDistanceYards(state.start, state.aim);
     
-    // Validate distance is reasonable
-    if (distance <= 0 || distance > 1000) {
-      console.warn('Invalid distance for ellipse calculation:', distance);
+    // Validate distance is reasonable (increased limit for GPS testing)
+    if (distance <= 0 || distance > 5000) {
+      console.warn('Invalid distance for ellipse calculation:', distance, 'yards');
       clearSamplesLayer();
       return;
     }
+    
+    console.log('🎯 Generating samples for distance:', distance.toFixed(1), 'yards');
     
     // Match ellipse axis assignment: width (lateral) is major, depth (distance) is minor
     const semiMajor = distance * Math.tan(state.skillPreset.offlineDeg * Math.PI / 180); // lateral error (width)
@@ -1225,6 +1280,12 @@ function CesiumCanvas({
         return; // Don't handle point selection when drawing
       }
       
+      // Check if GPS is active and trying to place Start point
+      if (isGPSActive && selectionModeRef.current === 'start') {
+        console.log('🌍 GPS is active - ignoring manual Start point placement');
+        return; // Don't allow manual Start placement when GPS is active
+      }
+      
       if (!selectionModeRef.current) return;
       
       // Use globe.pick for terrain-aware picking
@@ -1243,7 +1304,7 @@ function CesiumCanvas({
     return () => {
       handler.destroy();
     };
-  }, [viewerReady, drawingState.isDrawing]); // Include drawing state in dependencies
+  }, [viewerReady, drawingState.isDrawing, isGPSActive]); // Include drawing state and GPS state in dependencies
 
 
   // Utility functions
@@ -1311,6 +1372,16 @@ function CesiumCanvas({
               className="h-8 w-8"
             >
               <i className={`fas fa-cube ${photorealEnabled ? 'text-primary' : 'text-gray-400'}`}></i>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleGPS}
+              title="Use GPS for Start"
+              className="h-8 w-8"
+              disabled={!isGPSSupported}
+            >
+              <i className={`fas fa-location-crosshairs ${isGPSActive ? 'text-primary' : 'text-gray-400'}`}></i>
             </Button>
             <Button
               variant="ghost"
@@ -1444,13 +1515,24 @@ function CesiumCanvas({
           {/* Status indicators */}
           {viewerReady && (
             <div className="absolute top-4 left-4 space-y-2">
-              {state.selectionMode && (
+              {isGPSActive && (
+                <Badge variant="default" className="text-xs bg-green-600">
+                  <i className="fas fa-location-dot text-xs mr-1"></i>
+                  GPS tracking start position
+                </Badge>
+              )}
+              {state.selectionMode && !isGPSActive && (
                 <Badge variant="secondary" className="text-xs">
                   Click map to set {state.selectionMode === 'start' ? 'starting position' : 
                     state.selectionMode === 'aim' ? 'aim point' : 'pin position'}
                 </Badge>
               )}
-              {!state.selectionMode && (
+              {state.selectionMode === 'start' && isGPSActive && (
+                <Badge variant="secondary" className="text-xs">
+                  GPS active - manual start placement disabled
+                </Badge>
+              )}
+              {!state.selectionMode && !isGPSActive && (
                 <Badge variant="secondary" className="text-xs">
                   Select a point type to place on map
                 </Badge>

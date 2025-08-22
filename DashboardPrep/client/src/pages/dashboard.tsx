@@ -49,6 +49,7 @@ export default function Dashboard() {
   const [holePolylinesByRef, setHolePolylinesByRef] = useState<Map<string, any>>(new Map());
   const [cesiumViewerRef, setCesiumViewerRef] = useState<any>(null);
   const [courseNavigationInitialized, setCourseNavigationInitialized] = useState(false);
+  const [isGPSActive, setIsGPSActive] = useState(false);
   const [drawingManager, setDrawingManager] = useState<any>(null);
   const [userPolygons, setUserPolygons] = useState<UserPolygon[]>([]);
   const [drawingState, setDrawingState] = useState<{ isDrawing: boolean; vertexCount: number; currentCondition: string | null }>({
@@ -99,7 +100,10 @@ export default function Dashboard() {
       case 'HOLE_CHANGED':
         setHoleId(event.payload.holeId);
         setCurrentHole(event.payload.holeNumber);
-        setStart(undefined);
+        // Don't reset start point if GPS is active
+        if (!isGPSActive) {
+          setStart(undefined);
+        }
         setPin(undefined);
         setAim(undefined);
         break;
@@ -356,7 +360,8 @@ export default function Dashboard() {
             // Sample all elevations in parallel before setting points
             const elevationPromises: Promise<any>[] = [];
             
-            if (points.start) {
+            // Don't update start point if GPS is active
+            if (points.start && !isGPSActive) {
               elevationPromises.push(samplePointElevation(points.start, 'start'));
             }
             if (points.aim) {
@@ -372,7 +377,8 @@ export default function Dashboard() {
               console.log('✅ All elevations sampled, setting points...');
               
               // Now set the points - UI will render with correct elevations
-              if (points.start) setStart(points.start);
+              // Don't set start point if GPS is active
+              if (points.start && !isGPSActive) setStart(points.start);
               if (points.aim) setAim(points.aim);
               if (points.pin) setPin(points.pin);
               
@@ -381,7 +387,8 @@ export default function Dashboard() {
             } catch (error) {
               console.warn('⚠️ Some elevation sampling failed, setting points anyway:', error);
               // Set points even if elevation sampling fails
-              if (points.start) setStart(points.start);
+              // Don't set start point if GPS is active
+              if (points.start && !isGPSActive) setStart(points.start);
               if (points.aim) setAim(points.aim);
               if (points.pin) setPin(points.pin);
               
@@ -425,6 +432,7 @@ export default function Dashboard() {
           holeFeatures={vectorFeatures}
           currentHole={currentHole}
           pinLocation={pin}
+          onGPSStateChange={setIsGPSActive}
           onViewerReady={(viewer) => {
             setCesiumViewerRef(viewer);
             // Pass the drawing manager back to dashboard level
