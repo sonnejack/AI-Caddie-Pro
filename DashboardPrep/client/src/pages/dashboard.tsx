@@ -153,11 +153,14 @@ export default function Dashboard() {
   };
 
 
-  const handleCourseSelect = async (course: { id: string; name: string; osm: { seeds: string[] } }) => {
+  const handleCourseSelect = async (course: { id: string; name: string; osm?: { seeds: string[] } }) => {
     try {
       setLoadingCourse(true);
       setLoadingProgress({ stage: 'Importing course data from OpenStreetMap...', progress: 10 });
       console.log('🏌️ Starting course import for:', course.name);
+      
+      // Determine seeds based on course type
+      const seeds = course.osm?.seeds || [course.id];
       
       // Import course data from OSM
       const response = await fetch('/api/courses/import-osm', {
@@ -165,7 +168,7 @@ export default function Dashboard() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ seeds: course.osm.seeds }),
+        body: JSON.stringify({ seeds: seeds }),
       });
 
       if (!response.ok) {
