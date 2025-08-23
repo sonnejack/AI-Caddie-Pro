@@ -430,7 +430,6 @@ export default function Dashboard() {
           loadingCourse={loadingCourse}
           loadingProgress={loadingProgress}
           nSamples={sampleCount}
-          onSampleCountChange={setSampleCount}
           holePolylinesByRef={holePolylinesByRef}
           holeFeatures={vectorFeatures}
           currentHole={currentHole}

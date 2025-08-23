@@ -59,7 +59,6 @@ interface CesiumCanvasProps {
   holeEndpoints?: { teeLL: LatLon; greenLL: LatLon; primaryGreen: any };
   vectorFeatures?: any; // ImportResponse['holes'][0]['features']
   nSamples?: number;
-  onSampleCountChange?: (count: number) => void; // Callback to update parent sample count
   onESWorkerCall?: (params: any) => void;
   loadingCourse?: boolean;
   loadingProgress?: { stage: string; progress: number };
@@ -132,7 +131,6 @@ function CesiumCanvas({
   holeEndpoints,
   vectorFeatures,
   nSamples = 600,
-  onSampleCountChange,
   onESWorkerCall,
   loadingCourse = false,
   loadingProgress = { stage: '', progress: 0 },
@@ -152,8 +150,6 @@ function CesiumCanvas({
   const selectionModeRef = useRef(state.selectionMode);
   const onPointSetRef = useRef(onPointSet);
   const [viewerReady, setViewerReady] = useState(false);
-  const [layersVisible, setLayersVisible] = useState(true);
-  const [slopeArrows, setSlopeArrows] = useState(false);
   const [photorealEnabled, setPhotorealEnabled] = useState(false);
   const [rasterMode, setRasterMode] = useState<'off' | 'fill' | 'edges'>('off');
   const [showSamples, setShowSamples] = useState(true);
@@ -1468,38 +1464,11 @@ function CesiumCanvas({
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setLayersVisible(!layersVisible)}
-              title="Toggle Features"
-              className="h-8 w-8"
-            >
-              <i className={`fas fa-layer-group ${layersVisible ? 'text-primary' : 'text-gray-400'}`}></i>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setSlopeArrows(!slopeArrows)}
-              title="Toggle Slope Arrows"
-              className="h-8 w-8"
-            >
-              <i className={`fas fa-arrow-up ${slopeArrows ? 'text-primary' : 'text-gray-400'}`}></i>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
               onClick={() => setRasterMode(rasterMode === 'fill' ? 'off' : 'fill')}
               title="Toggle Mask (Fill)"
               className="h-8 w-8"
             >
-              <i className={`fas fa-palette ${rasterMode === 'fill' ? 'text-primary' : 'text-gray-400'}`}></i>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setRasterMode(rasterMode === 'edges' ? 'off' : 'edges')}
-              title="Toggle Mask (Edges)"
-              className="h-8 w-8"
-            >
-              <i className={`fas fa-border-style ${rasterMode === 'edges' ? 'text-primary' : 'text-gray-400'}`}></i>
+              <i className={`fas fa-layer-group ${rasterMode === 'fill' ? 'text-primary' : 'text-gray-400'}`}></i>
             </Button>
             <Button
               variant="ghost"
@@ -1512,25 +1481,6 @@ function CesiumCanvas({
             </Button>
           </div>
         </div>
-        
-        {/* Samples Control Row */}
-        {showSamples && (
-          <div className="flex items-center justify-between text-sm px-2 py-1 bg-muted border-b">
-            <span className="text-gray-600">Samples:</span>
-            <div className="flex items-center space-x-2">
-              <input
-                type="range"
-                min="100"
-                max="1200"
-                step="50"
-                value={nSamples}
-                onChange={(e) => onSampleCountChange?.(Number(e.target.value))}
-                className="w-24 h-2"
-              />
-              <span className="font-mono text-xs min-w-[3rem] text-right">{nSamples}</span>
-            </div>
-          </div>
-        )}
       </CardHeader>
       <CardContent className="p-0">
         {/* 3D Canvas Container */}
