@@ -73,6 +73,8 @@ interface CesiumCanvasProps {
   onDrawingStateChange?: (state: DrawingManagerState) => void;
   // GPS state callback
   onGPSStateChange?: (isActive: boolean) => void;
+  // Mobile layout
+  hideMobileControls?: boolean;
 }
 
 // Helper function to calculate distance in yards
@@ -142,7 +144,8 @@ function CesiumCanvas({
   onUserPolygonsChange,
   onDrawingStateChange,
   onSampleData,
-  onGPSStateChange
+  onGPSStateChange,
+  hideMobileControls = false
 }: CesiumCanvasProps) {
   const viewerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -562,6 +565,24 @@ function CesiumCanvas({
           viewerWithCameraFunctions.flyTeeView = flyTeeView;
           viewerWithCameraFunctions.flyFairwayView = flyFairwayView;
           viewerWithCameraFunctions.flyGreenView = flyGreenView;
+          viewerWithCameraFunctions.handleCameraPreset = handleCameraPreset;
+          viewerWithCameraFunctions.handleGoogleTilesToggle = handleGoogleTilesToggle;
+          viewerWithCameraFunctions.handleSamplesToggle = handleSamplesToggle;
+          viewerWithCameraFunctions.toggleGPS = toggleGPS;
+          viewerWithCameraFunctions.setRasterMode = setRasterMode;
+          // Expose state properties for mobile toggles
+          Object.defineProperty(viewerWithCameraFunctions, 'photorealEnabled', {
+            get: () => photorealEnabled
+          });
+          Object.defineProperty(viewerWithCameraFunctions, 'isGPSActive', {
+            get: () => isGPSActive
+          });
+          Object.defineProperty(viewerWithCameraFunctions, 'rasterMode', {
+            get: () => rasterMode
+          });
+          Object.defineProperty(viewerWithCameraFunctions, 'showSamples', {
+            get: () => showSamples
+          });
           viewerWithCameraFunctions.drawingManager = manager; // Expose drawing manager
           onViewerReady(viewerWithCameraFunctions);
         }
@@ -1435,6 +1456,41 @@ function CesiumCanvas({
     return points;
   }
 
+  // Mobile layout - no Card wrapper, just the viewer
+  if (hideMobileControls) {
+    return (
+      <DrawingManagerContext.Provider value={{ manager: drawingManager, state: drawingState }}>
+        <div className="w-full h-full relative overflow-hidden">
+          <div
+            ref={containerRef}
+            className="absolute inset-0 w-full h-full"
+          />
+          
+          {/* Loading Overlay - Mobile */}
+          {loadingCourse && (
+            <div className="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-50">
+              <div className="text-center space-y-3">
+                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">{loadingProgress.stage || 'Loading...'}</p>
+                  {loadingProgress.progress > 0 && (
+                    <div className="w-48 h-1 bg-muted rounded-full overflow-hidden mx-auto">
+                      <div 
+                        className="h-full bg-primary transition-all duration-300" 
+                        style={{ width: `${loadingProgress.progress}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </DrawingManagerContext.Provider>
+    );
+  }
+
+  // Desktop layout with Card wrapper
   return (
     <DrawingManagerContext.Provider value={{ manager: drawingManager, state: drawingState }}>
       <Card className="overflow-visible">
@@ -1573,62 +1629,64 @@ function CesiumCanvas({
           )}
         </div>
 
-        {/* Camera Controls */}
-        <div className="p-3 bg-muted border-t border-border">
-          <div className="flex items-center justify-between text-xs text-gray-600">
-            <div className="flex items-center space-x-4">
-              <span>Elevation: <span className="font-medium">245ft</span></span>
-              <span>Zoom: <span className="font-medium">15x</span></span>
-            </div>
-            <div className="flex items-center space-x-1">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-xs flex-1"
-                onClick={() => handleCameraPreset('shotpov')}
-                disabled={!viewerRef.current || !state.start || !state.aim}
-              >
-                Shot POV
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-xs flex-1"
-                onClick={() => handleCameraPreset('overview')}
-                disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
-              >
-                Overview
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-xs flex-1"
-                onClick={() => handleCameraPreset('tee')}
-                disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
-              >
-                Tee
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-xs flex-1"
-                onClick={() => handleCameraPreset('fairway')}
-                disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
-              >
-                Fairway
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-xs flex-1"
-                onClick={() => handleCameraPreset('green')}
-                disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
-              >
-                Green
-              </Button>
+        {/* Camera Controls - Hidden on Mobile */}
+        {!hideMobileControls && (
+          <div className="p-3 bg-muted border-t border-border">
+            <div className="flex items-center justify-between text-xs text-gray-600">
+              <div className="flex items-center space-x-4">
+                <span>Elevation: <span className="font-medium">245ft</span></span>
+                <span>Zoom: <span className="font-medium">15x</span></span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs flex-1"
+                  onClick={() => handleCameraPreset('shotpov')}
+                  disabled={!viewerRef.current || !state.start || !state.aim}
+                >
+                  Shot POV
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs flex-1"
+                  onClick={() => handleCameraPreset('overview')}
+                  disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
+                >
+                  Overview
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs flex-1"
+                  onClick={() => handleCameraPreset('tee')}
+                  disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
+                >
+                  Tee
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs flex-1"
+                  onClick={() => handleCameraPreset('fairway')}
+                  disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
+                >
+                  Fairway
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs flex-1"
+                  onClick={() => handleCameraPreset('green')}
+                  disabled={!viewerRef.current || !holePolylinesByRef?.has(currentHole?.toString() || '') || !holeFeatures}
+                >
+                  Green
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </CardContent>
     </Card>
     </DrawingManagerContext.Provider>

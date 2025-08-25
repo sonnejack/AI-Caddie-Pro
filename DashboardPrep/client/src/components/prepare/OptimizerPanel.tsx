@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -29,7 +29,7 @@ interface OptimizerPanelProps {
   onOptimizationComplete?: (candidates: Candidate[]) => void;
 }
 
-export default function OptimizerPanel({ 
+const OptimizerPanel = forwardRef<{ handleRunOptimizer: () => void }, OptimizerPanelProps>(({ 
   viewer,
   start, 
   pin, 
@@ -43,7 +43,7 @@ export default function OptimizerPanel({
   onSampleCountChange,
   onAimSet,
   onOptimizationComplete
-}: OptimizerPanelProps) {
+}, ref) => {
   const [strategy, setStrategy] = useState<'CEM' | 'RingGrid' | 'FullGrid'>('RingGrid');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -89,7 +89,7 @@ export default function OptimizerPanel({
     
     if (!start) {
       console.warn('🏔️ No start position for elevation filtering');
-      return candidates.slice(0, 8); // Return top 8 without filtering
+      return candidates.slice(0, 5); // Return top 5 without filtering
     }
 
     const { samplePointElevation } = await import('@/lib/pointElevation');
@@ -128,9 +128,9 @@ export default function OptimizerPanel({
         if (isValid) {
           validCandidates.push(candidate);
           
-          // Stop once we have 8 valid candidates
-          if (validCandidates.length >= 8) {
-            console.log('🏔️ Found 8 valid candidates, stopping elevation filtering');
+          // Stop once we have 5 valid candidates
+          if (validCandidates.length >= 5) {
+            console.log('🏔️ Found 5 valid candidates, stopping elevation filtering');
             break;
           }
         }
@@ -141,7 +141,7 @@ export default function OptimizerPanel({
         const surfaceDistanceMeters = calculateDistance(start, candidatePoint);
         const surfaceDistanceYards = surfaceDistanceMeters / 0.9144;
         
-        if (surfaceDistanceYards <= maxDistance && validCandidates.length < 8) {
+        if (surfaceDistanceYards <= maxDistance && validCandidates.length < 5) {
           validCandidates.push(candidate);
         }
       }
@@ -265,7 +265,7 @@ export default function OptimizerPanel({
                 console.log('🎯 Final candidates after elevation filtering:', filteredCandidates);
                 
                 setCandidates(filteredCandidates);
-                setCandidatePoints(filteredCandidates);
+                setCandidatePoints(filteredCandidates).catch(console.error);
                 onOptimizationComplete?.(filteredCandidates);
                 
                 // Auto-set the best candidate as aim
@@ -325,6 +325,11 @@ export default function OptimizerPanel({
       setProgressNote('');
     }
   }, [canOptimize, isOptimizing, strategy, start, pin, maxDistance, skill, maskBuffer, heightGrid, nEarly, nFinal, ci95Stop, onAimSet, onOptimizationComplete]);
+
+  // Expose handleRunOptimizer to parent components via ref
+  useImperativeHandle(ref, () => ({
+    handleRunOptimizer
+  }), [handleRunOptimizer]);
 
   const handleCancelOptimization = useCallback(() => {
     if (workerRef.current) {
@@ -587,4 +592,8 @@ export default function OptimizerPanel({
       </CardContent>
     </Card>
   );
-}
+});
+
+OptimizerPanel.displayName = 'OptimizerPanel';
+
+export default OptimizerPanel;

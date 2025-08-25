@@ -1,7 +1,7 @@
 import { computeMaskDimsPreservingAspect, makeDegToPxMapper, expandBBox, CLASS, sanitizeMaskBuffer, logMaskHistogramOnce, CONDITION_CLASS } from './maskBuffer';
 import type { ImportResponse } from '@shared/overpass';
 import type { MaskBuffer } from './maskBuffer';
-import type { UserPolygon } from '@/prepare/drawing/ConditionDrawingManager';
+import type { UserPolygon } from '@/cesium/ConditionDrawingManager';
 
 const PAINT_CLASS = { UNKNOWN:0, WATER:2, BUNKER:4, GREEN:5, FAIRWAY:6, RECOVERY:7, ROUGH:8, TEE:9 } as const;
 

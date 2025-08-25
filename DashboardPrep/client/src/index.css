@@ -101,6 +101,12 @@
   .golf-condition-hazard {
     background-color: var(--golf-hazard);
   }
+
+  /* Mobile Glass Cards */
+  .glass-card-mobile {
+    @apply rounded-lg shadow-md border border-border
+           bg-white/25 dark:bg-slate-900/25 backdrop-blur-md p-2;
+  }
 }
 
 @layer utilities {

@@ -20,13 +20,16 @@ import type { MaskBuffer } from '@/lib/maskBuffer';
 import { samplePointElevation, setMaskBuffer as setElevationMaskBuffer } from '@/lib/pointElevation';
 import type { ImportResponse } from '@shared/overpass';
 import type { LatLon, ESResult } from '@shared/types';
-import { DrawingManagerContext } from '@/prepare/drawing/DrawingManagerContext';
-import type { UserPolygon } from '@/prepare/drawing/ConditionDrawingManager';
+import { DrawingManagerContext, type DrawingManagerState } from '@/prepare/drawing/DrawingManagerContext';
+import type { UserPolygon } from '@/cesium/ConditionDrawingManager';
 import { UserMenu } from '@/components/auth/UserMenu';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import MobileShell from '@/layout/MobileShell';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 export default function Dashboard() {
+  const isMobile = useMediaQuery("(max-width: 480px)");
   const [activeTab, setActiveTab] = useState('prepare');
   const [currentHole, setCurrentHole] = useState(1);
   const [loadingCourse, setLoadingCourse] = useState(false);
@@ -52,10 +55,10 @@ export default function Dashboard() {
   const [isGPSActive, setIsGPSActive] = useState(false);
   const [drawingManager, setDrawingManager] = useState<any>(null);
   const [userPolygons, setUserPolygons] = useState<UserPolygon[]>([]);
-  const [drawingState, setDrawingState] = useState<{ isDrawing: boolean; vertexCount: number; currentCondition: string | null }>({
+  const [drawingState, setDrawingState] = useState<DrawingManagerState>({
     isDrawing: false,
-    vertexCount: 0,
-    currentCondition: null
+    vertices: 0,
+    condition: undefined
   });
   const [currentSampleData, setCurrentSampleData] = useState<{ points: LatLon[], classes: number[], pointsLL: Float64Array } | undefined>();
   const [originalCourseBbox, setOriginalCourseBbox] = useState<{ west: number; south: number; east: number; north: number } | null>(null);
@@ -519,10 +522,142 @@ export default function Dashboard() {
     </DrawingManagerContext.Provider>
   );
 
+  // If mobile, render mobile shell instead
+  if (isMobile && activeTab === 'prepare') {
+    return (
+      <MobileShell
+        courseId={courseId || null}
+        onCourseSelect={handleCourseSelect}
+        currentHole={currentHole}
+        onHoleChange={changeHole}
+        holePolylinesByRef={holePolylinesByRef}
+        holeFeatures={vectorFeatures}
+        cesiumViewer={cesiumViewerRef}
+        pinLocation={pin}
+        onAutoNavigate={async (points) => {
+          console.log('🎯 Starting hole navigation with elevation sampling...');
+          
+          // Sample all elevations in parallel before setting points
+          const elevationPromises: Promise<any>[] = [];
+          
+          // Don't update start point if GPS is active
+          if (points.start && !isGPSActive) {
+            elevationPromises.push(samplePointElevation(points.start, 'start'));
+          }
+          if (points.aim) {
+            elevationPromises.push(samplePointElevation(points.aim, 'aim'));
+          }
+          if (points.pin) {
+            elevationPromises.push(samplePointElevation(points.pin, 'pin'));
+          }
+          
+          try {
+            // Wait for all elevation sampling to complete
+            await Promise.all(elevationPromises);
+            console.log('✅ All elevations sampled, setting points...');
+            
+            // Now set the points - UI will render with correct elevations
+            // Don't set start point if GPS is active
+            if (points.start && !isGPSActive) setStart(points.start);
+            if (points.aim) setAim(points.aim);
+            if (points.pin) setPin(points.pin);
+            
+            console.log('✅ Hole navigation complete for hole', currentHole);
+            
+          } catch (error) {
+            console.warn('⚠️ Some elevation sampling failed, setting points anyway:', error);
+            // Set points even if elevation sampling fails
+            // Don't set start point if GPS is active
+            if (points.start && !isGPSActive) setStart(points.start);
+            if (points.aim) setAim(points.aim);
+            if (points.pin) setPin(points.pin);
+            
+            console.log('✅ Hole navigation complete for hole', currentHole, '(with elevation warnings)');
+          }
+        }}
+        state={state}
+        onPointSet={setPoint}
+        onSkillChange={handleSkillChange}
+        onRollConditionChange={setRollCondition}
+        onSelectionModeChange={setSelectionMode}
+        maskBuffer={maskBuffer}
+        esResult={esResult}
+        vectorFeatures={vectorFeatures}
+        loadingCourse={loadingCourse}
+        loadingProgress={loadingProgress}
+        sampleCount={sampleCount}
+        onGPSStateChange={setIsGPSActive}
+        onViewerReady={(viewer) => {
+          setCesiumViewerRef(viewer);
+          // Pass the drawing manager back to dashboard level
+          if (viewer.drawingManager) {
+            setDrawingManager(viewer.drawingManager);
+          }
+        }}
+        onDrawingStateChange={(state) => {
+          setDrawingState(state);
+        }}
+        onUserPolygonsChange={setUserPolygons}
+        onSampleData={(sampleData) => {
+          // Store the sample data from CesiumCanvas for DispersionInspector to use
+          console.log('🎯 Dashboard received sample data from CesiumCanvas:', sampleData.points.length, 'points');
+          console.log('🎯 Sample data class distribution:', sampleData.classes.reduce((acc: Record<number, number>, cls: number) => {
+            acc[cls] = (acc[cls] || 0) + 1;
+            return acc;
+          }, {}));
+          setCurrentSampleData(sampleData);
+        }}
+        onESWorkerCall={async (params) => {
+          // Create worker and call it with the params
+          try {
+            const worker = new Worker('/src/workers/esWorker.ts', { type: 'module' });
+            
+            return new Promise((resolve, reject) => {
+              worker.onmessage = (event) => {
+                const result = event.data;
+                if (result.error) {
+                  reject(new Error(result.error));
+                } else {
+                  // Update the ES result state
+                  setESResult(result);
+                  resolve(result);
+                }
+                worker.terminate();
+              };
+              
+              worker.onerror = (error) => {
+                reject(error);
+                worker.terminate();
+              };
+              
+              worker.postMessage(params);
+            });
+          } catch (error) {
+            console.error('Error creating ES worker:', error);
+          }
+        }}
+        start={start}
+        aim={aim}
+        pin={pin}
+        skill={skill}
+        rollCondition={rollCondition}
+        mask={mask}
+        currentSampleData={currentSampleData}
+        onESResult={(result) => {
+          setEs(result);
+          // Cast the result to include typed arrays for CesiumCanvas
+          setESResult(result as any);
+        }}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Header with Tabs */}
-      <header className="bg-card border-b border-border sticky top-0 z-50">
+      {/* Header with Tabs - Hidden on Mobile */}
+      <header className={`bg-card border-b border-border sticky top-0 z-50 ${isMobile ? 'hidden' : ''}`}>
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-12">
           <div className="flex items-center h-16">
             <div className="flex items-center space-x-2">
@@ -588,8 +723,8 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-full mx-auto px-4 sm:px-6 lg:px-12 py-6">
+      {/* Main Content - Hidden on Mobile for Prepare Tab */}
+      <main className={`max-w-full mx-auto px-4 sm:px-6 lg:px-12 py-6 ${isMobile ? 'hidden' : ''}`}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsContent value="prepare" className="mt-0">
             {prepareTabContent}

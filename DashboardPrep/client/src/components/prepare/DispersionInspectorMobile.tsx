@@ -12,7 +12,7 @@ import { sampleClassFromMask } from '@/lib/maskBuffer';
 import { MaskBufferAdapter } from '@/lib/maskAdapter';
 import { ES } from '@shared/expectedStrokesAdapter';
 
-interface DispersionInspectorProps {
+interface DispersionInspectorMobileProps {
   start?: LatLon;
   aim?: LatLon;
   pin?: LatLon;
@@ -25,9 +25,9 @@ interface DispersionInspectorProps {
   onESResult?: (result: ESResult & { samplePoints?: Array<{point: LatLon, classId: number}>, avgProximity?: number, avgProximityInPlay?: number }) => void;
 }
 
-export default function DispersionInspector({ 
+export default function DispersionInspectorMobile({ 
   start, aim, pin, skill, rollCondition, mask, maskBuffer, sampleCount = 600, sampleData, onESResult 
-}: DispersionInspectorProps) {
+}: DispersionInspectorMobileProps) {
   const [samplingProgress, setSamplingProgress] = useState(0);
   const [processedSamples, setProcessedSamples] = useState(0);
   const [confidence, setConfidence] = useState(Infinity);
@@ -47,12 +47,6 @@ export default function DispersionInspector({
       const adjustedB = b * rollMultipliers.widthMultiplier;
       
       setEllipseDimensions({ a: adjustedA, b: adjustedB });
-      console.log('🏌️ Ellipse dimensions with roll condition:', {
-        rollCondition,
-        rollMultipliers,
-        original: { a, b },
-        adjusted: { a: adjustedA, b: adjustedB }
-      });
     } else {
       setEllipseDimensions({ a: 0, b: 0 });
     }
@@ -99,72 +93,7 @@ export default function DispersionInspector({
     }
     
     try {
-      console.log('🎯 [DispersionInspector] Sampling', points.length, 'points using maskBuffer (these are ellipse dispersion samples representing shot outcomes)');
-      console.log('🎯 [DispersionInspector] MaskBuffer dimensions:', maskBuffer.width, 'x', maskBuffer.height);
-      console.log('🎯 [DispersionInspector] MaskBuffer bbox:', maskBuffer.bbox);
-      console.log('🎯 [DispersionInspector] MaskBuffer data length:', maskBuffer.data.length);
-      
-      // Sample a histogram of the mask data to verify it contains user polygon changes
-      const classCounts = new Map<number, number>();
-      for (let i = 0; i < maskBuffer.data.length; i += 4) {
-        const classId = maskBuffer.data[i];
-        classCounts.set(classId, (classCounts.get(classId) || 0) + 1);
-      }
-      console.log('🎯 [DispersionInspector] Mask class distribution:', Array.from(classCounts.entries()).map(([k,v]) => `Class ${k}: ${v}`));
-      
       const results = points.map(point => sampleClassFromMask(point.lon, point.lat, maskBuffer));
-      
-      // Function to map class ID to condition name for logging
-      const getConditionName = (classId: number): string => {
-        switch (classId) {
-          case 0: return 'unknown/rough';
-          case 1: return 'OB';
-          case 2: return 'water';
-          case 3: return 'hazard';
-          case 4: return 'bunker/sand';
-          case 5: return 'green';
-          case 6: return 'fairway';
-          case 7: return 'recovery';
-          case 8: return 'rough';
-          case 9: return 'tee';
-          default: return `unknown-${classId}`;
-        }
-      };
-
-      // Log first few samples for debugging with distances to pin and pixel coordinates
-      if (pin) {
-        for (let i = 0; i < Math.min(5, points.length); i++) {
-          const distanceToPin = calculateDistance(points[i], pin);
-          
-          // Calculate what pixel coordinates this point maps to
-          const x = Math.floor(((points[i].lon - maskBuffer.bbox.west) / (maskBuffer.bbox.east - maskBuffer.bbox.west)) * maskBuffer.width);
-          const y = Math.floor(((maskBuffer.bbox.north - points[i].lat) / (maskBuffer.bbox.north - maskBuffer.bbox.south)) * maskBuffer.height);
-          const clampedX = Math.max(0, Math.min(maskBuffer.width - 1, x));
-          const clampedY = Math.max(0, Math.min(maskBuffer.height - 1, y));
-          const pixelIndex = (clampedY * maskBuffer.width + clampedX) * 4;
-          const rawClassId = maskBuffer.data[pixelIndex];
-          
-          console.log(`Sample ${i + 1}: (${points[i].lat.toFixed(6)}, ${points[i].lon.toFixed(6)}) -> ${distanceToPin.toFixed(1)}y to pin, pixel(${clampedX},${clampedY}), rawClass=${rawClassId}, finalClass=${results[i]} (${getConditionName(results[i])})`);
-        }
-      } else {
-        for (let i = 0; i < Math.min(5, points.length); i++) {
-          console.log(`Sample ${i + 1}: (${points[i].lat.toFixed(6)}, ${points[i].lon.toFixed(6)}) -> NO PIN SET, class ${results[i]} (${getConditionName(results[i])})`);
-        }
-      }
-      
-      // Count sampled classes and compare to mask distribution
-      const sampledClassCounts = new Map<number, number>();
-      results.forEach(classId => {
-        sampledClassCounts.set(classId, (sampledClassCounts.get(classId) || 0) + 1);
-      });
-      
-      console.log('🎯 [DispersionInspector] Landing Conditions class distribution from', results.length, 'points:', Array.from(sampledClassCounts.entries()).map(([k,v]) => `Class ${k}: ${v} (${(100*v/results.length).toFixed(1)}%)`));
-      
-      // Show coordinate ranges to verify we're sampling the same area
-      const lons = points.map(p => p.lon);
-      const lats = points.map(p => p.lat);
-      console.log('🎯 [DispersionInspector] Coordinate ranges: lon', Math.min(...lons).toFixed(6), 'to', Math.max(...lons).toFixed(6), ', lat', Math.min(...lats).toFixed(6), 'to', Math.max(...lats).toFixed(6));
-      
       return results;
     } catch (error) {
       console.error('❌ Error sampling maskBuffer, using default fairway:', error);
@@ -182,16 +111,12 @@ export default function DispersionInspector({
 
     // Use sample data from CesiumCanvas if available, otherwise skip
     if (!sampleData || !sampleData.points.length) {
-      console.log('🎯 [DispersionInspector] No sample data available from CesiumCanvas yet');
       setStatus('idle');
       return;
     }
 
     const points = sampleData.points;
     const classes = sampleData.classes as ClassId[];
-
-    console.log('🎯 [DispersionInspector] Using', points.length, 'sample points from CesiumCanvas');
-    console.log('🎯 [DispersionInspector] Sample data received - points:', points.length, 'classes:', classes.length);
 
     // Calculate Expected Strokes for each point directly (no worker needed for simple calculation)
     const esResults: number[] = [];
@@ -201,16 +126,10 @@ export default function DispersionInspector({
     const samplePointsData = [];
     const numberOfSamples = points.length;
 
-    console.log('🎯 Calculating Expected Strokes for each sample point:');
-    console.log('📍 Start point:', `(${start!.lat.toFixed(6)}, ${start!.lon.toFixed(6)})`);
-    console.log('🎯 Aim point:', `(${aim!.lat.toFixed(6)}, ${aim!.lon.toFixed(6)})`);
-    console.log('📌 Pin point:', `(${pin!.lat.toFixed(6)}, ${pin!.lon.toFixed(6)})`);
-
     for (let i = 0; i < numberOfSamples; i++) {
       const point = points[i];
       const classId = classes[i];
       const distanceToPin = calculateDistance(point, pin);
-      const distanceFromTee = calculateDistance(start!, point);
       
       // Map class to condition and calculate penalty for ES calculation
       let condition: "green"|"fairway"|"rough"|"sand"|"recovery"|"water";
@@ -242,11 +161,6 @@ export default function DispersionInspector({
       if (classId !== 1 && classId !== 2) {
         inPlayDistance += distanceToPin;
         inPlayCount++;
-      }
-
-      // Debug first 10 points with all details
-      if (i < 10) {
-        console.log(`Sampled point ${i + 1}: ${distanceFromTee.toFixed(1)} yards from tee, ${distanceToPin.toFixed(1)} yards to pin, condition = ${condition}, ES = ${es.toFixed(3)}`);
       }
     }
 
@@ -288,16 +202,6 @@ export default function DispersionInspector({
     setConfidence(result.ci95);
     setSamplingProgress(100);
     setStatus('converged');
-
-    console.log('📊 Final Results:', {
-      meanES: meanES.toFixed(3),
-      avgProximity: avgProximity.toFixed(1),
-      avgProximityInPlay: avgProximityInPlay.toFixed(1),
-      samplesUsed: numberOfSamples
-    });
-
-    // Don't call onESResult here to avoid infinite loop
-    // onESResult will be called in a separate effect when esResult changes
   }, [aim, pin, start, skill, sampleCount, sampleData]);
 
   // Call onESResult when we have a new result, but use a ref to prevent infinite loops
@@ -307,37 +211,18 @@ export default function DispersionInspector({
     if (esResult && onESResult && esResult !== lastResultRef.current) {
       lastResultRef.current = esResult;
       onESResult(esResult);
-      console.log('📊 DispersionInspector: Sent result to parent:', {
-        meanES: esResult.mean.toFixed(3),
-        avgProximity: esResult.avgProximity?.toFixed(1),
-        avgProximityInPlay: esResult.avgProximityInPlay?.toFixed(1),
-        sampleCount: esResult.n
-      });
     }
   }, [esResult, onESResult]);
 
   // Reset status to 'idle' when points, skill, or sample count change to allow auto-evaluation
   useEffect(() => {
-    console.log('🔄 Parameters changed:', {
-      start: start ? `(${start.lat.toFixed(6)}, ${start.lon.toFixed(6)})` : 'null',
-      aim: aim ? `(${aim.lat.toFixed(6)}, ${aim.lon.toFixed(6)})` : 'null', 
-      pin: pin ? `(${pin.lat.toFixed(6)}, ${pin.lon.toFixed(6)})` : 'null',
-      skillName: skill.name,
-      rollCondition,
-      sampleCount,
-      maskBufferExists: !!maskBuffer,
-      sampleDataAvailable: !!sampleData && sampleData.points.length > 0
-    });
-    
     // Reset status to allow auto-evaluation when parameters change (including mask and roll condition)
     if (start && aim && pin) {
-      console.log('🔄 Resetting status to idle for auto-evaluation');
       setStatus('idle');
     }
   }, [start, aim, pin, skill, rollCondition, sampleCount, maskBuffer, sampleData]);
 
   // Auto-evaluate when points, skill, or sample count change (debounced)
-  // Remove status and runESEvaluation from deps to prevent infinite loop
   useEffect(() => {
     if (start && aim && pin && sampleData) {
       const timeoutId = setTimeout(() => {
@@ -357,7 +242,7 @@ export default function DispersionInspector({
 
   const canEvaluate = start && aim && pin;
 
-  // Calculate condition breakdown from ES result
+  // Calculate condition breakdown from ES result - TOP 3 ONLY
   const calculateConditionBreakdown = () => {
     const totalSamples = esResult?.n || 0;
     
@@ -379,67 +264,53 @@ export default function DispersionInspector({
       .map(({ classId, condition, color }) => {
         const count = esResult?.countsByClass?.[classId as keyof typeof esResult.countsByClass] || 0;
         const percentage = totalSamples > 0 ? Math.round((count / totalSamples) * 100) : 0;
-        const hasData = count > 0; // Show row if there's any count, even if percentage rounds to 0
+        const hasData = count > 0;
         return { condition, percentage, count, color, hasData };
       })
-      .sort((a, b) => b.count - a.count); // Sort by count descending to put populated rows first
+      .filter(item => item.hasData) // Only show conditions that have samples
+      .sort((a, b) => b.count - a.count) // Sort by count descending
+      .slice(0, 3); // TOP 3 ONLY
   };
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base font-semibold text-foreground">Dispersion Analysis</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 pt-0">
-        {/* Ellipse Dimensions */}
-        <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Ellipse Dimensions</h4>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="text-center p-2 bg-muted rounded">
-              <p className="text-lg font-bold text-primary">
-                {(ellipseDimensions.a * 2).toFixed(1)}
-              </p>
-              <p className="text-xs text-gray-600">Long. (yds)</p>
-            </div>
-            <div className="text-center p-2 bg-muted rounded">
-              <p className="text-lg font-bold text-primary">
-                {(ellipseDimensions.b * 2).toFixed(1)}
-              </p>
-              <p className="text-xs text-gray-600">Lateral (yds)</p>
-            </div>
-          </div>
+    <div className="space-y-1">
+      {/* Ellipse Dimensions - Side by Side, Super Compact */}
+      <div className="flex gap-1">
+        <div className="text-center px-1 py-0.5 bg-muted rounded flex-1">
+          <p className="text-xs font-bold text-primary">
+            {(ellipseDimensions.a * 2).toFixed(0)}
+          </p>
+          <p className="text-xs text-gray-600 leading-none">L</p>
         </div>
+        <div className="text-center px-1 py-0.5 bg-muted rounded flex-1">
+          <p className="text-xs font-bold text-primary">
+            {(ellipseDimensions.b * 2).toFixed(0)}
+          </p>
+          <p className="text-xs text-gray-600 leading-none">W</p>
+        </div>
+      </div>
 
-        {/* Landing Conditions - Single Stacked Bar */}
-        <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Landing Conditions</h4>
-          <div className="space-y-2">
-            {/* Stacked Bar */}
-            <div className="flex rounded-full h-4 overflow-hidden bg-muted">
-              {calculateConditionBreakdown().map((condition, index) => (
-                <div
-                  key={index}
-                  className={`${condition.color} transition-all duration-300`}
-                  style={{ width: `${condition.percentage}%` }}
-                  title={`${condition.condition}: ${condition.percentage}% (${condition.count} shots)`}
-                />
-              ))}
-            </div>
-            
-            {/* Legend with counts and percentages */}
-            <div className="grid grid-cols-2 gap-1 text-xs">
-              {calculateConditionBreakdown().map((condition, index) => (
-                <div key={index} className="flex items-center gap-1">
-                  <div className={`w-2 h-2 rounded-sm ${condition.color}`}></div>
-                  <span className="text-gray-600">
-                    {condition.condition}: {condition.count} ({condition.percentage}%)
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+      {/* Landing Conditions - Single Stacked Bar */}
+      <div>
+        <div className="flex rounded-full h-2 overflow-hidden bg-muted">
+          {calculateConditionBreakdown().slice(0, 2).map((condition, index) => (
+            <div
+              key={index}
+              className={`${condition.color} transition-all duration-300`}
+              style={{ width: `${condition.percentage}%` }}
+              title={`${condition.condition}: ${condition.percentage}%`}
+            />
+          ))}
         </div>
-      </CardContent>
-    </Card>
+        {/* Show percentages for top 2 conditions */}
+        <div className="flex justify-between text-xs text-gray-600 mt-0.5">
+          {calculateConditionBreakdown().slice(0, 2).map((condition, index) => (
+            <span key={index} className="text-xs">
+              {condition.condition.slice(0, 3)}: {condition.percentage}%
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

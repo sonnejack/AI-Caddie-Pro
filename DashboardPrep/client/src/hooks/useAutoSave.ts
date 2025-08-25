@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { UserPolygon } from '@/prepare/drawing/ConditionDrawingManager';
+import type { UserPolygon } from '@/cesium/ConditionDrawingManager';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
