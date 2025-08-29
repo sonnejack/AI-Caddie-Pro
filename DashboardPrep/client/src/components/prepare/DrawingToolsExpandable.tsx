@@ -99,9 +99,9 @@ export default function DrawingToolsExpandable(props: DrawingToolsExpandableProp
             <Button
               variant={isExpanded ? "default" : "ghost"}
               size="sm"
-              className={`h-8 w-8 p-0 ${
-                isExpanded 
-                  ? 'bg-primary text-primary-foreground' 
+              className={`h-8 w-4 p-0 ${
+                isExpanded
+                  ? 'bg-primary text-primary-foreground'
                   : 'hover:bg-muted'
               }`}
               onClick={() => setIsExpanded(!isExpanded)}

@@ -62,13 +62,14 @@ export default function HoleChip({
       }
 
       // Import hole geometry functions dynamically
-      const { 
-        validateHolePolyline, 
-        assignEndpoints, 
+      const holeGeom: any = await import('@/lib/holeGeom');
+      const {
+        validateHolePolyline,
+        assignEndpoints,
         pointAlongPolylineYds,
         bearingDeg,
         offsetLL
-      } = await import('@/lib/holeGeom');
+      } = holeGeom;
       
       const polylineData = holePolylinesByRef.get(holeRef);
       const holePolyline = {
@@ -166,21 +167,21 @@ export default function HoleChip({
 
   return (
     <div className="glass-card-mobile">
-      <div className="flex items-center gap-0.5 px-1 py-0.5">
+      <div className="flex items-center gap-0 px-0.5 py-0">
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
-          className="h-4 w-4 p-0 text-white hover:bg-primary/20"
+          className="h-4 w-4 p-0 flex items-center justify-center border border-black bg-transparent hover:bg-black/10"
           onClick={handlePrevHole}
         >
-          <i className="fas fa-chevron-left text-xs"></i>
+          <i className="fas fa-chevron-left text-xs text-foreground"></i>
         </Button>
 
         <Dialog open={showHoleSelector} onOpenChange={setShowHoleSelector}>
           <DialogTrigger asChild>
-            <Button 
-              variant="ghost" 
-              className="px-1 py-0 h-4 text-xs font-medium hover:bg-primary/10"
+            <Button
+              variant="ghost"
+              className="px-1 py-0 h-4 text-xs font-medium hover:bg-primary/20"
             >
               Hole {currentHole}
             </Button>
@@ -211,12 +212,12 @@ export default function HoleChip({
         </Dialog>
 
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
-          className="h-4 w-4 p-0 text-white hover:bg-primary/20"
+          className="h-4 w-4 p-0 flex items-center justify-center border border-black bg-transparent hover:bg-black/10"
           onClick={handleNextHole}
         >
-          <i className="fas fa-chevron-right text-xs"></i>
+          <i className="fas fa-chevron-right text-xs text-foreground"></i>
         </Button>
       </div>
     </div>

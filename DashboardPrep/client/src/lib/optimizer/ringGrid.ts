@@ -129,7 +129,7 @@ export class RingGridOptimizer implements OptimizerStrategy {
     }
     
     let evalCount = 0;
-    const allCandidates: Array<{ ll: LL; es: number; ci95?: number }> = [];
+    const allCandidates: Array<{ ll: LL; es: number; ci95?: number; conditionBreakdown?: Record<number, number> }> = [];
     
     // Phase 2: Ring Grid Search (with adaptive buffer, no elevation filtering)
     const R = bufferDistanceMeters;
@@ -172,7 +172,7 @@ export class RingGridOptimizer implements OptimizerStrategy {
         // Evaluate with progressive MC
         const result = await this.evaluateAimPointProgressive(aimLL, input, signal);
         evalCount++;
-        allCandidates.push({ ll: aimLL, es: result.es, ci95: result.ci95, conditionBreakdown: result.conditionBreakdown });
+        allCandidates.push({ ll: aimLL, es: result.es, ci95: result.ci95, conditionBreakdown: result.conditionBreakdown, ellipseDimensions: result.ellipseDimensions });
       }
       
       // Update progress
@@ -215,7 +215,7 @@ export class RingGridOptimizer implements OptimizerStrategy {
           
           const result = await this.evaluateAimPointProgressive(refinedLL, input, signal);
           evalCount++;
-          allCandidates.push({ ll: refinedLL, es: result.es, ci95: result.ci95, conditionBreakdown: result.conditionBreakdown });
+          allCandidates.push({ ll: refinedLL, es: result.es, ci95: result.ci95, conditionBreakdown: result.conditionBreakdown, ellipseDimensions: result.ellipseDimensions });
         }
       }
       
@@ -269,7 +269,8 @@ export class RingGridOptimizer implements OptimizerStrategy {
       lat: c.ll.lat,
       es: c.es,
       esCi95: c.ci95 || 0,
-      conditionBreakdown: c.conditionBreakdown
+      conditionBreakdown: c.conditionBreakdown,
+      ellipseDimensions: c.ellipseDimensions
     }));
     
     return {
@@ -321,7 +322,7 @@ export class RingGridOptimizer implements OptimizerStrategy {
   ): Promise<{ es: number; ci95: number; conditionBreakdown?: Record<number, number> }> {
     const stats = new ProgressiveStats();
     const conditionBreakdown: Record<number, number> = {};
-    const maxSamples = input.eval.nEarly;
+    const maxSamples = input.eval.nFinal;
     
     // Calculate distance from start to aim point
     const distance = this.calculateDistance(input.start, aim) / 0.9144; // Convert to yards
@@ -331,23 +332,20 @@ export class RingGridOptimizer implements OptimizerStrategy {
     const lateralErrorDeg = input.skill.offlineDeg;
     
     // Ellipse semi-axes calculations (same as ellipseAxes function)
-    let a = distance * (distanceErrorPct / 100); // distance axis
-    let b = distance * Math.tan(lateralErrorDeg * Math.PI / 180); // lateral axis
+    // Double the dimensions to match shot metrics
+    let a = 2 * distance * (distanceErrorPct / 100); // distance axis - doubled
+    let b = 2 * distance * Math.tan(lateralErrorDeg * Math.PI / 180); // lateral axis - doubled
     
     // Apply roll condition multipliers to ellipse dimensions
     a = a * input.rollMultipliers.depthMultiplier;
     b = b * input.rollMultipliers.widthMultiplier;
     
-    // Calculate bearing from start to aim (same as CesiumCanvas)
-    const bearing = Math.atan2(
-      (aim.lon - input.start.lon) * Math.cos((input.start.lat + aim.lat) / 2 * Math.PI / 180),
-      aim.lat - input.start.lat
-    );
+    // Calculate bearing from start to aim using proper spherical geometry (matching CesiumCanvas)
+    const bearing = this.calculateBearing(input.start, aim);
     
-    // Generate samples using SAME function as CesiumCanvas
-    // Note: CesiumCanvas uses (semiMajor=lateral, semiMinor=distance) but ellipseAxes returns (a=distance, b=lateral)
-    // So we swap them: semiMajor=b (lateral), semiMinor=a (distance)
-    const samplePoints = generateEllipseSamples(maxSamples, b, a, bearing, aim, 1);
+    // Generate samples - swap axes for optimizer consistency
+    // Use: semiMajor=a (distance), semiMinor=b (lateral) to match other optimizers
+    const samplePoints = generateEllipseSamples(maxSamples, a, b, bearing, aim, 1);
     
     // Create mock mask buffer for classification
     const mockMaskBuffer = {
@@ -390,7 +388,12 @@ export class RingGridOptimizer implements OptimizerStrategy {
     return {
       es: stats.getMean(),
       ci95: stats.getConfidenceInterval95(),
-      conditionBreakdown
+      conditionBreakdown,
+      ellipseDimensions: {
+        semiMajorYards: a / 0.9144, // distance (depth) 
+        semiMinorYards: b / 0.9144, // lateral (width)
+        distanceYards: distance
+      }
     };
   }
   
@@ -404,6 +407,18 @@ export class RingGridOptimizer implements OptimizerStrategy {
              Math.sin(dLon/2) ** 2;
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     return R * c; // meters
+  }
+
+  private calculateBearing(from: LL, to: LL): number {
+    // Proper spherical bearing calculation matching CesiumCanvas
+    const dLon = (to.lon - from.lon) * Math.PI / 180;
+    const lat1 = from.lat * Math.PI / 180;
+    const lat2 = to.lat * Math.PI / 180;
+    
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    
+    return Math.atan2(y, x);
   }
   
   private classIdToConditionWithPenalty(classId: number): { condition: 'green'|'fairway'|'rough'|'sand'|'recovery'|'water'; penalty: number } {

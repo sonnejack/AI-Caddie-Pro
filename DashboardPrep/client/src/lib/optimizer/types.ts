@@ -53,6 +53,11 @@ export interface Candidate {
   es: number;          // expected strokes (mean)
   esCi95?: number;     // 95% CI if computed
   conditionBreakdown?: Record<number, number>; // classId -> count for debugging
+  ellipseDimensions?: {
+    semiMajorYards: number;
+    semiMinorYards: number;
+    distanceYards: number;
+  };
 }
 
 export interface OptimizerResult {

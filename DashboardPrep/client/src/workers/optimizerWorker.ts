@@ -256,6 +256,11 @@ interface Candidate {
   es: number;
   esCi95?: number;
   conditionBreakdown?: Record<number, number>; // classId -> count for debugging
+  ellipseDimensions?: {
+    semiMajorYards: number;
+    semiMinorYards: number;
+    distanceYards: number;
+  };
 }
 
 interface OptimizerResult {
@@ -453,7 +458,7 @@ async function runCEMOptimization(input: OptimizerInput, signal: AbortSignal): P
       const result = await evaluateAimPoint(ll, input, signal);
       totalEvals++;
       evaluations.push({ point, es: result.es });
-      allCandidates.push({ ll, es: result.es, conditionBreakdown: result.conditionBreakdown });
+      allCandidates.push({ ll, es: result.es, conditionBreakdown: result.conditionBreakdown, ellipseDimensions: result.ellipseDimensions });
       
       // Update progress
       const progress = (iter / maxIterations) * 80 + 
@@ -535,7 +540,8 @@ async function runCEMOptimization(input: OptimizerInput, signal: AbortSignal): P
     lat: c.ll.lat,
     es: c.es,
     esCi95: 0.025, // Mock CI for now
-    conditionBreakdown: c.conditionBreakdown
+    conditionBreakdown: c.conditionBreakdown,
+    ellipseDimensions: c.ellipseDimensions
   }));
   
   return {
@@ -549,26 +555,36 @@ async function runCEMOptimization(input: OptimizerInput, signal: AbortSignal): P
   };
 }
 
-async function evaluateAimPoint(aim: LL, input: OptimizerInput, signal: AbortSignal): Promise<{ es: number; conditionBreakdown: Record<number, number> }> {
+// Proper spherical bearing calculation matching CesiumCanvas
+function calculateBearing(from: LL, to: LL): number {
+  const dLon = (to.lon - from.lon) * Math.PI / 180;
+  const lat1 = from.lat * Math.PI / 180;
+  const lat2 = to.lat * Math.PI / 180;
+  
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  
+  return Math.atan2(y, x);
+}
+
+async function evaluateAimPoint(aim: LL, input: OptimizerInput, signal: AbortSignal): Promise<{ es: number; conditionBreakdown: Record<number, number>; ellipseDimensions?: any }> {
   const stats = new ProgressiveStats();
   const conditionCounts = {
     green: 0, fairway: 0, rough: 0, sand: 0, recovery: 0, water: 0, ob: 0, hazard: 0, tee: 0, unknown: 0
   };
   const conditionBreakdown: Record<number, number> = {};
-  const maxSamples = Math.min(input.eval.nEarly, 100); // Keep it fast for demo
+  const maxSamples = input.eval.nFinal; // Use final sample count for consistency with shot metrics
   
-  // Calculate ellipse parameters
-  const aimToStart = {
-    x: (input.start.lon - aim.lon) * 111320 * Math.cos(aim.lat * Math.PI / 180),
-    y: (input.start.lat - aim.lat) * 111320
-  };
-  const distance = Math.sqrt(aimToStart.x ** 2 + aimToStart.y ** 2);
-  const bearing = Math.atan2(aimToStart.x, aimToStart.y);
+  // Calculate ellipse parameters using proper spherical bearing
+  const distance = calculateDistance(input.start, aim);
+  const bearing = calculateBearing(input.start, aim); // start→aim direction like CesiumCanvas
   
   // Convert skill parameters to ellipse dimensions (in meters)
+  // Swap axes: optimizer needs semiMajor=distance (depth), semiMinor=lateral (width)
+  // Double the dimensions to match shot metrics
   const distanceYards = distance / 0.9144;
-  const semiMajorYards = (input.skill.distPct / 100) * distanceYards;
-  const semiMinorYards = distanceYards * Math.tan(input.skill.offlineDeg * Math.PI / 180);
+  const semiMajorYards = 2 * (input.skill.distPct / 100) * distanceYards; // distance error (depth) - doubled
+  const semiMinorYards = 2 * distanceYards * Math.tan(input.skill.offlineDeg * Math.PI / 180); // lateral error (width) - doubled
   const semiMajorM = semiMajorYards * 0.9144;
   const semiMinorM = semiMinorYards * 0.9144;
   
@@ -584,7 +600,6 @@ async function evaluateAimPoint(aim: LL, input: OptimizerInput, signal: AbortSig
       bbox: input.mask.bbox,
       data: input.mask.classes
     };
-    
     const classId = sampleRasterPixel(sample.lon, sample.lat, mockMaskBuffer);
     
     // Track condition breakdown for debugging
@@ -608,7 +623,15 @@ async function evaluateAimPoint(aim: LL, input: OptimizerInput, signal: AbortSig
     }
   }
   
-  return { es: stats.getMean(), conditionBreakdown };
+  return { 
+    es: stats.getMean(), 
+    conditionBreakdown,
+    ellipseDimensions: {
+      semiMajorYards: semiMajorYards, // distance (depth)
+      semiMinorYards: semiMinorYards, // lateral (width)
+      distanceYards: distanceYards
+    }
+  };
 }
 
 function getConditionName(classId: number): 'green'|'fairway'|'rough'|'sand'|'recovery'|'water'|'ob'|'hazard'|'tee'|'unknown' {
@@ -634,10 +657,11 @@ function sampleEllipse(center: LL, semiMajorM: number, semiMinorM: number, beari
   const theta = 2 * Math.PI * u2;
   
   // Transform to ellipse local coordinates
+  // Note: semiMajor = distance (depth), semiMinor = lateral (width) for optimizer
   const x = semiMajorM * r * Math.cos(theta);
   const y = semiMinorM * r * Math.sin(theta);
   
-  // Rotate by bearing
+  // Rotate by bearing (using proper spherical bearing)
   const cos_bearing = Math.cos(bearing);
   const sin_bearing = Math.sin(bearing);
   const x_rot = x * cos_bearing - y * sin_bearing;
@@ -651,7 +675,7 @@ function sampleEllipse(center: LL, semiMajorM: number, semiMinorM: number, beari
   };
 }
 
-// Basic constraint check for CEM (same logic as Full Grid - no elevation filtering)
+// Basic constraint check for CEM (no elevation filtering)
 function passesBasicConstraintsCEM(aimLL: LL, input: OptimizerInput, maxRadiusM: number): boolean {
   const startToAimDistanceMeters = calculateDistance(input.start, aimLL);
   
@@ -660,7 +684,7 @@ function passesBasicConstraintsCEM(aimLL: LL, input: OptimizerInput, maxRadiusM:
     return false;
   }
   
-  // Distance constraint: don't allow aims farther from pin than start is (optional constraint)
+  // Distance constraint: don't allow aims farther from pin than start is
   if (input.constraints?.disallowFartherThanPin) {
     const aimToPinDist = calculateDistance(aimLL, input.pin);
     const startToPinDist = calculateDistance(input.start, input.pin);

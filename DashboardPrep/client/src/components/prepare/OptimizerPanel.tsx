@@ -263,6 +263,8 @@ const OptimizerPanel = forwardRef<{ handleRunOptimizer: () => void }, OptimizerP
                 setIsOptimizing(false);
                 
                 console.log('🎯 Final candidates after elevation filtering:', filteredCandidates);
+                console.log('🔍 First candidate properties:', Object.keys(filteredCandidates[0] || {}));
+                console.log('🔍 First candidate ellipseDimensions:', (filteredCandidates[0] as any)?.ellipseDimensions);
                 
                 setCandidates(filteredCandidates);
                 setCandidatePoints(filteredCandidates).catch(console.error);
@@ -306,7 +308,7 @@ const OptimizerPanel = forwardRef<{ handleRunOptimizer: () => void }, OptimizerP
         setIsOptimizing(false);
       };
 
-      // Start optimization
+      // Start optimization in worker
       const message: OptimizeMsg = {
         type: 'run',
         strategy,
@@ -568,6 +570,23 @@ const OptimizerPanel = forwardRef<{ handleRunOptimizer: () => void }, OptimizerP
                               </span>
                             );
                           })}
+                        {start && skill && (
+                          <div className="mt-2 pt-2 border-t border-black/10 dark:border-white/10">
+                            <p className="font-medium mb-1">📏 Debug: Ellipse Dimensions</p>
+                            {(() => {
+                              const distance = calculateDistance(start, { lat: candidate.lat, lon: candidate.lon }) / 0.9144; // yards
+                              const width = 2 * distance * Math.tan(skill.offlineDeg * Math.PI / 180); // lateral - doubled
+                              const length = 2 * distance * (skill.distPct / 100); // distance - doubled
+                              return (
+                                <>
+                                  <span className="mr-4">Width: {width.toFixed(1)}y</span>
+                                  <span className="mr-4">Length: {length.toFixed(1)}y</span>
+                                  <span>Distance: {distance.toFixed(1)}y</span>
+                                </>
+                              );
+                            })()} 
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

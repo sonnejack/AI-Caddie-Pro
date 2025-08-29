@@ -20,63 +20,59 @@ export default function ShotSetupMobile({
 }: ShotSetupMobileProps) {
 
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-0 flex flex-col items-center">
       {/* Point Buttons - Vertical Stack */}
-      <div className="flex flex-col gap-0.5">
+      <div className="flex flex-col gap-0 justify-center items-center">
         {/* Start Point */}
         <Button
           variant="outline"
           size="sm"
-          className={`h-4 w-4 p-0 flex items-center justify-center border ${
-            state.selectionMode === 'start' 
-              ? 'bg-red-500/20 border-red-500' 
-              : 'border-border hover:bg-red-500/10'
-          }`}
+          className="h-4 w-4 p-0 flex items-center justify-center bg-transparent hover:bg-transparent"
+          style={state.selectionMode === 'start' ? { borderColor: '#dc2626' } : {}}
           onClick={() => {
             const newMode = state.selectionMode === 'start' ? null : 'start';
             onSelectionModeChange(newMode);
           }}
         >
-          <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+          <div className="w-1.5 h-1.5 bg-red-500 rounded-full" style={state.selectionMode === 'start' ? { filter: 'brightness(1.2)' } : {}} />
         </Button>
 
         {/* Aim Point */}
         <Button
           variant="outline"
           size="sm"
-          className={`h-4 w-4 p-0 flex items-center justify-center border ${
-            state.selectionMode === 'aim' 
-              ? 'bg-blue-500/20 border-blue-500' 
-              : 'border-border hover:bg-blue-500/10'
-          }`}
+          className="h-4 w-4 p-0 flex items-center justify-center bg-transparent hover:bg-transparent"
+          style={state.selectionMode === 'aim' ? { borderColor: '#2563eb' } : {}}
           onClick={() => {
             const newMode = state.selectionMode === 'aim' ? null : 'aim';
             onSelectionModeChange(newMode);
           }}
         >
-          <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+          <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" style={state.selectionMode === 'aim' ? { filter: 'brightness(1.2)' } : {}} />
         </Button>
 
         {/* Pin Point */}
         <Button
           variant="outline"
           size="sm"
-          className={`h-4 w-4 p-0 flex items-center justify-center border ${
-            state.selectionMode === 'pin' 
-              ? 'bg-yellow-500/20 border-yellow-500' 
-              : 'border-border hover:bg-yellow-500/10'
-          }`}
+          className="h-4 w-4 p-0 flex items-center justify-center bg-transparent hover:bg-transparent"
+          style={state.selectionMode === 'pin' ? { borderColor: '#eab308' } : {}}
           onClick={() => {
             const newMode = state.selectionMode === 'pin' ? null : 'pin';
             onSelectionModeChange(newMode);
           }}
         >
-          <div className="w-1.5 h-1.5 bg-yellow-500" style={{clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)'}} />
+          <div className="w-1.5 h-1.5 bg-yellow-500" style={
+            {
+              ...(state.selectionMode === 'pin' ? { filter: 'brightness(1.2)' } : {}),
+              clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)'
+            }
+          } />
         </Button>
       </div>
 
       {/* Dropdowns Column - Vertically Stacked */}
-      <div className="space-y-0.5">
+      <div className="space-y-0 flex flex-col items-center">
         {/* Skill Level Dropdown - Ultra Compact */}
         <Select
           value={state.skillPreset.name}
@@ -87,7 +83,7 @@ export default function ShotSetupMobile({
             }
           }}
         >
-          <SelectTrigger className="h-4 text-xs px-1 [&>svg]:hidden">
+          <SelectTrigger className="h-4 text-xs px-1 bg-transparent hover:bg-transparent [&>svg]:hidden flex items-center justify-center">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -106,7 +102,7 @@ export default function ShotSetupMobile({
             onRollConditionChange(value);
           }}
         >
-          <SelectTrigger className="h-4 text-xs px-1 [&>svg]:hidden">
+          <SelectTrigger className="h-4 text-xs px-1 bg-transparent hover:bg-transparent [&>svg]:hidden flex items-center justify-center">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

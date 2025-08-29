@@ -152,7 +152,9 @@ export class FullGridOptimizer implements OptimizerStrategy {
         lon: c.lon,
         lat: c.lat,
         es: c.es,
-        esCi95: c.esCi95
+        esCi95: c.esCi95,
+        conditionBreakdown: c.conditionBreakdown,
+        ellipseDimensions: c.ellipseDimensions
       })),
       evalCount: evaluatedCandidates.length,
       diagnostics: {
@@ -223,23 +225,20 @@ export class FullGridOptimizer implements OptimizerStrategy {
     const lateralErrorDeg = input.skill.offlineDeg;
     
     // Ellipse semi-axes calculations (same as ellipseAxes function)
-    let a = distance * (distanceErrorPct / 100); // distance axis
-    let b = distance * Math.tan(lateralErrorDeg * Math.PI / 180); // lateral axis
+    // Double the dimensions to match shot metrics
+    let a = 2 * distance * (distanceErrorPct / 100); // distance axis - doubled
+    let b = 2 * distance * Math.tan(lateralErrorDeg * Math.PI / 180); // lateral axis - doubled
     
     // Apply roll condition multipliers to ellipse dimensions
     a = a * input.rollMultipliers.depthMultiplier;
     b = b * input.rollMultipliers.widthMultiplier;
     
-    // Calculate bearing from start to aim (same as CesiumCanvas)
-    const bearing = Math.atan2(
-      (aim.lon - input.start.lon) * Math.cos((input.start.lat + aim.lat) / 2 * Math.PI / 180),
-      aim.lat - input.start.lat
-    );
+    // Calculate bearing from start to aim using proper spherical geometry (matching CesiumCanvas)
+    const bearing = this.calculateBearing(input.start, aim);
     
-    // Generate samples using SAME function as CesiumCanvas
-    // Note: CesiumCanvas uses (semiMajor=lateral, semiMinor=distance) but ellipseAxes returns (a=distance, b=lateral)
-    // So we swap them: semiMajor=b (lateral), semiMinor=a (distance)
-    const samplePoints = generateEllipseSamples(maxSamples, b, a, bearing, aim, 1);
+    // Generate samples - swap axes for optimizer consistency
+    // Use: semiMajor=a (distance), semiMinor=b (lateral) to match other optimizers
+    const samplePoints = generateEllipseSamples(maxSamples, a, b, bearing, aim, 1);
     
     // Create mock mask buffer for classification
     const mockMaskBuffer = {
@@ -281,7 +280,12 @@ export class FullGridOptimizer implements OptimizerStrategy {
     return {
       es: stats.getMean(),
       ci95: stats.getConfidenceInterval95(),
-      conditionBreakdown
+      conditionBreakdown,
+      ellipseDimensions: {
+        semiMajorYards: a / 0.9144, // distance (depth) 
+        semiMinorYards: b / 0.9144, // lateral (width)
+        distanceYards: distance
+      }
     };
   }
 
@@ -297,23 +301,32 @@ export class FullGridOptimizer implements OptimizerStrategy {
     return R * c; // meters
   }
 
+  private calculateBearing(from: LL, to: LL): number {
+    // Proper spherical bearing calculation matching CesiumCanvas
+    const dLon = (to.lon - from.lon) * Math.PI / 180;
+    const lat1 = from.lat * Math.PI / 180;
+    const lat2 = to.lat * Math.PI / 180;
+    
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    
+    return Math.atan2(y, x);
+  }
+
 
   /**
-   * Convert class ID to condition for ES calculation (same logic as Ring Grid)
+   * Convert class ID to condition for ES calculation
    */
   private classToCondition(classId: number): { condition: 'green'|'fairway'|'rough'|'sand'|'recovery'|'water'; penalty: number } {
     switch (classId) {
-      case 0: return { condition: 'rough', penalty: 0 }; // UNKNOWN -> rough
-      case 1: return { condition: 'rough', penalty: 2 }; // OB -> rough + 2
-      case 2: return { condition: 'water', penalty: 0 }; // WATER (already includes +1 in engine)
-      case 3: return { condition: 'rough', penalty: 1 }; // HAZARD -> rough + 1
-      case 4: return { condition: 'sand', penalty: 0 };  // BUNKER -> sand
-      case 5: return { condition: 'green', penalty: 0 }; // GREEN
-      case 6: return { condition: 'fairway', penalty: 0 }; // FAIRWAY
-      case 7: return { condition: 'recovery', penalty: 0 }; // RECOVERY
-      case 8: return { condition: 'rough', penalty: 0 }; // ROUGH
-      case 9: return { condition: 'fairway', penalty: 0 }; // TEE -> fairway
-      default: return { condition: 'rough', penalty: 0 };
+      case 5: return { condition: 'green', penalty: 0 };
+      case 6: return { condition: 'fairway', penalty: 0 };
+      case 4: return { condition: 'sand', penalty: 0 }; // bunker
+      case 2: return { condition: 'water', penalty: 0 };
+      case 7: return { condition: 'recovery', penalty: 0 };
+      case 1: return { condition: 'rough', penalty: 2 }; // OB
+      case 3: return { condition: 'rough', penalty: 1 }; // hazard
+      default: return { condition: 'rough', penalty: 0 }; // 0,8,9 -> rough
     }
   }
 
@@ -356,14 +369,15 @@ export class FullGridOptimizer implements OptimizerStrategy {
       if (signal.aborted) break;
       
       const candidate = candidates[i];
-      const result = await this.evaluateAimPointProgressive(candidate, input, params.earlyN, params.ci95Threshold, signal);
+      const result = await this.evaluateAimPointProgressive(candidate, input, params.finalN, params.ci95Threshold, signal);
       
       results.push({
         lon: candidate.lon,
         lat: candidate.lat,
         es: result.es,
         esCi95: result.ci95,
-        conditionBreakdown: result.conditionBreakdown
+        conditionBreakdown: result.conditionBreakdown,
+        ellipseDimensions: result.ellipseDimensions
       });
       
       // Update progress every 100 candidates

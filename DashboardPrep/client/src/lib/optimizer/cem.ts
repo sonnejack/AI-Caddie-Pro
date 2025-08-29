@@ -122,9 +122,9 @@ export class CEMOptimizer implements OptimizerStrategy {
           }
         }
         
-        const es = await this.evaluateAimPoint(ll, input, signal);
+        const result = await this.evaluateAimPoint(ll, input, signal);
         totalEvals++;
-        evaluations.push({ point, es });
+        evaluations.push({ point, es: result.es, ellipseDimensions: result.ellipseDimensions });
         
         // Also track in global list for final candidate selection
         allEvaluations.push({ point, es, ll });
@@ -237,18 +237,16 @@ export class CEMOptimizer implements OptimizerStrategy {
     const stats = new ProgressiveStats();
     const maxSamples = input.eval.nEarly;
     
-    // Calculate ellipse parameters
-    const aimToStart = {
-      x: (input.start.lon - aim.lon) * M_PER_DEG_LAT * Math.cos(aim.lat * Math.PI / 180),
-      y: (input.start.lat - aim.lat) * M_PER_DEG_LAT
-    };
-    const distance = Math.sqrt(aimToStart.x ** 2 + aimToStart.y ** 2);
-    const bearing = Math.atan2(aimToStart.x, aimToStart.y);
+    // Calculate ellipse parameters using proper spherical geometry
+    const distance = this.calculateDistance(input.start, aim);
+    const bearing = this.calculateBearing(input.start, aim); // start→aim direction like CesiumCanvas
     
     // Convert skill parameters to ellipse dimensions (in meters)
+    // Swap axes: optimizer needs semiMajor=distance (depth), semiMinor=lateral (width)
+    // Double the dimensions to match shot metrics
     const distanceYards = distance / 0.9144;
-    const semiMajorYards = (input.skill.distPct / 100) * distanceYards;
-    const semiMinorYards = distanceYards * Math.tan(input.skill.offlineDeg * Math.PI / 180);
+    const semiMajorYards = 2 * (input.skill.distPct / 100) * distanceYards; // distance error (depth) - doubled
+    const semiMinorYards = 2 * distanceYards * Math.tan(input.skill.offlineDeg * Math.PI / 180); // lateral error (width) - doubled
     const semiMajorM = semiMajorYards * 0.9144;
     const semiMinorM = semiMinorYards * 0.9144;
     
@@ -282,25 +280,30 @@ export class CEMOptimizer implements OptimizerStrategy {
       }
     }
     
-    return stats.getMean();
+    return {
+      es: stats.getMean(),
+      ellipseDimensions: {
+        semiMajorYards: semiMajorYards, // distance (depth)
+        semiMinorYards: semiMinorYards, // lateral (width)
+        distanceYards: distanceYards
+      }
+    };
   }
   
   private async evaluateAimPointFinal(aim: LL, input: OptimizerInput, signal: AbortSignal): Promise<{ mean: number; ci95: number }> {
     const stats = new ProgressiveStats();
     const maxSamples = input.eval.nFinal; // Use full sample count for final evaluation
     
-    // Calculate ellipse parameters (same as evaluateAimPoint)
-    const aimToStart = {
-      x: (input.start.lon - aim.lon) * M_PER_DEG_LAT * Math.cos(aim.lat * Math.PI / 180),
-      y: (input.start.lat - aim.lat) * M_PER_DEG_LAT
-    };
-    const distance = Math.sqrt(aimToStart.x ** 2 + aimToStart.y ** 2);
-    const bearing = Math.atan2(aimToStart.x, aimToStart.y);
+    // Calculate ellipse parameters using proper spherical geometry (same as evaluateAimPoint)
+    const distance = this.calculateDistance(input.start, aim);
+    const bearing = this.calculateBearing(input.start, aim); // start→aim direction like CesiumCanvas
     
     // Convert skill parameters to ellipse dimensions (in meters)
+    // Swap axes: optimizer needs semiMajor=distance (depth), semiMinor=lateral (width)
+    // Double the dimensions to match shot metrics
     const distanceYards = distance / 0.9144;
-    const semiMajorYards = (input.skill.distPct / 100) * distanceYards;
-    const semiMinorYards = distanceYards * Math.tan(input.skill.offlineDeg * Math.PI / 180);
+    const semiMajorYards = 2 * (input.skill.distPct / 100) * distanceYards; // distance error (depth) - doubled
+    const semiMinorYards = 2 * distanceYards * Math.tan(input.skill.offlineDeg * Math.PI / 180); // lateral error (width) - doubled
     const semiMajorM = semiMajorYards * 0.9144;
     const semiMinorM = semiMinorYards * 0.9144;
     
@@ -330,7 +333,12 @@ export class CEMOptimizer implements OptimizerStrategy {
     
     return {
       mean: stats.getMean(),
-      ci95: stats.getConfidenceInterval95()
+      ci95: stats.getConfidenceInterval95(),
+      ellipseDimensions: {
+        semiMajorYards: semiMajorYards, // distance (depth)
+        semiMinorYards: semiMinorYards, // lateral (width)
+        distanceYards: distanceYards
+      }
     };
   }
   
@@ -377,7 +385,8 @@ export class CEMOptimizer implements OptimizerStrategy {
           lon: evaluation.ll.lon,
           lat: evaluation.ll.lat,
           es: finalES.mean,
-          esCi95: finalES.ci95
+          esCi95: finalES.ci95,
+          ellipseDimensions: finalES.ellipseDimensions
         });
       }
     }
@@ -392,7 +401,8 @@ export class CEMOptimizer implements OptimizerStrategy {
         lon: best.ll.lon,
         lat: best.ll.lat,
         es: finalES.mean,
-        esCi95: finalES.ci95
+        esCi95: finalES.ci95,
+        ellipseDimensions: finalES.ellipseDimensions
       });
     }
     
@@ -408,10 +418,11 @@ export class CEMOptimizer implements OptimizerStrategy {
     const theta = 2 * Math.PI * u2;
     
     // Transform to ellipse local coordinates
+    // Note: semiMajor = distance (depth), semiMinor = lateral (width) for optimizer
     const x = semiMajorM * r * Math.cos(theta);
     const y = semiMinorM * r * Math.sin(theta);
     
-    // Rotate by bearing
+    // Rotate by bearing (using proper spherical bearing)
     const cos_bearing = Math.cos(bearing);
     const sin_bearing = Math.sin(bearing);
     const x_rot = x * cos_bearing - y * sin_bearing;
@@ -426,9 +437,27 @@ export class CEMOptimizer implements OptimizerStrategy {
   }
   
   private calculateDistance(point1: LL, point2: LL): number {
-    const dx = (point2.lon - point1.lon) * M_PER_DEG_LAT * Math.cos(point1.lat * Math.PI / 180);
-    const dy = (point2.lat - point1.lat) * M_PER_DEG_LAT;
-    return Math.sqrt(dx * dx + dy * dy);
+    // Use haversine formula for accurate geodesic distance
+    const R = 6371000; // Earth radius in meters
+    const dLat = (point2.lat - point1.lat) * Math.PI / 180;
+    const dLon = (point2.lon - point1.lon) * Math.PI / 180;
+    const a = Math.sin(dLat/2) ** 2 + 
+             Math.cos(point1.lat * Math.PI/180) * Math.cos(point2.lat * Math.PI/180) * 
+             Math.sin(dLon/2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // meters
+  }
+
+  private calculateBearing(from: LL, to: LL): number {
+    // Proper spherical bearing calculation matching CesiumCanvas
+    const dLon = (to.lon - from.lon) * Math.PI / 180;
+    const lat1 = from.lat * Math.PI / 180;
+    const lat2 = to.lat * Math.PI / 180;
+    
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    
+    return Math.atan2(y, x);
   }
   
   private sampleUniformDisk(maxRadiusM: number): { x: number; y: number } {
